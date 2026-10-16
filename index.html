@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mapa Mental - Red Neuronal</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
         body, html {
             margin: 0;
@@ -93,6 +94,13 @@
                 </button>
                 <button id="btnClear" class="btn bg-slate-800 border border-slate-600 text-red-400 px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2">
                     <span>Limpiar Todo</span>
+                </button>
+                <div class="w-px bg-slate-700 mx-1"></div>
+                <button id="btnExportImg" class="btn bg-slate-800 border border-slate-600 text-emerald-400 px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2" title="Descargar como PNG">
+                    <span>🖼️ Imagen</span>
+                </button>
+                <button id="btnExportPDF" class="btn bg-slate-800 border border-slate-600 text-rose-400 px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2" title="Descargar como PDF">
+                    <span>📄 PDF</span>
                 </button>
             </div>
         </div>
@@ -258,8 +266,9 @@
 
         // Dibujado (Render Loop)
         function draw() {
-            // Limpiar canvas con un ligero efecto de traza (opcional, aquí sólido para limpieza)
-            ctx.clearRect(0, 0, width, height);
+            // Rellenar canvas con el color de fondo para que al exportar se vea negro
+            ctx.fillStyle = '#050505';
+            ctx.fillRect(0, 0, width, height);
 
             // Dibujar enlaces consolidados
             ctx.lineCap = 'round';
@@ -521,6 +530,31 @@
                 selectedNode = null;
                 draw();
             }
+        });
+
+        // Lógica de exportación de Imagen
+        document.getElementById('btnExportImg').addEventListener('click', () => {
+            const link = document.createElement('a');
+            link.download = 'mapa_neuronal.png';
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        });
+
+        // Lógica de exportación a PDF usando jsPDF
+        document.getElementById('btnExportPDF').addEventListener('click', () => {
+            const { jsPDF } = window.jspdf;
+            
+            // Adaptar la orientación del PDF al tamaño de la ventana
+            const orientation = width > height ? 'landscape' : 'portrait';
+            const pdf = new jsPDF({
+                orientation: orientation,
+                unit: 'px',
+                format: [width, height]
+            });
+            
+            const imgData = canvas.toDataURL('image/png');
+            pdf.addImage(imgData, 'PNG', 0, 0, width, height);
+            pdf.save('mapa_neuronal.pdf');
         });
 
         // Inicialización
