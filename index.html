@@ -132,6 +132,7 @@
         
         // Variables de interacción
         let selectedNode = null;
+        let selectedLink = null;
         let draggingNode = null;
         let connectingNode = null; // Nodo origen de una nueva conexión
         let mousePos = { x: 0, y: 0 };
@@ -150,7 +151,9 @@
             linkColor: 'rgba(14, 165, 233, 0.4)',
             linkGlowColor: 'rgba(14, 165, 233, 0.6)',
             linkWidth: 2,
-            tempLinkColor: 'rgba(250, 204, 21, 0.6)' // Yellowish temp link
+            tempLinkColor: 'rgba(250, 204, 21, 0.6)', // Yellowish temp link
+            selectedLinkColor: '#ef4444', // Tailwind red-500
+            selectedLinkGlow: 'rgba(239, 68, 68, 0.8)'
         };
 
         // Redimensionar canvas
@@ -181,6 +184,7 @@
                 nodes = previousState.nodes;
                 links = previousState.links;
                 selectedNode = null;
+                selectedLink = null;
                 draggingNode = null;
                 isConnecting = false;
                 draw();
@@ -233,6 +237,15 @@
             }
         }
 
+        function deleteSelectedLink() {
+            if (selectedLink) {
+                saveState();
+                links = links.filter(l => l !== selectedLink);
+                selectedLink = null;
+                draw();
+            }
+        }
+
         function addLink(fromId, toId) {
             // Evitar auto-conexiones o conexiones duplicadas
             if (fromId === toId) return;
@@ -264,6 +277,33 @@
             return nodes.find(n => n.id === id);
         }
 
+        // Calcula la distancia de un punto a un segmento de línea
+        function distanceToSegment(p, v, w) {
+            let l2 = (w.x - v.x) ** 2 + (w.y - v.y) ** 2;
+            if (l2 === 0) return Math.hypot(p.x - v.x, p.y - v.y);
+            let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+            t = Math.max(0, Math.min(1, t));
+            let proj = { x: v.x + t * (w.x - v.x), y: v.y + t * (w.y - v.y) };
+            return Math.hypot(p.x - proj.x, p.y - proj.y);
+        }
+
+        // Detecta si se ha hecho clic cerca de una línea
+        function getLinkAt(x, y) {
+            const tolerance = 6; // Pixeles de tolerancia para hacer clic en la línea
+            for (let i = links.length - 1; i >= 0; i--) {
+                const link = links[i];
+                const nodeA = getNodeById(link.from);
+                const nodeB = getNodeById(link.to);
+                if (nodeA && nodeB) {
+                    const dist = distanceToSegment({x, y}, nodeA, nodeB);
+                    if (dist <= tolerance) {
+                        return link;
+                    }
+                }
+            }
+            return null;
+        }
+
         // Dibujado (Render Loop)
         function draw() {
             // Rellenar canvas con el color de fondo para que al exportar se vea negro
@@ -277,14 +317,16 @@
                 const nodeB = getNodeById(link.to);
                 
                 if (nodeA && nodeB) {
+                    const isSelectedLink = (selectedLink === link);
+                    
                     ctx.beginPath();
                     ctx.moveTo(nodeA.x, nodeA.y);
                     ctx.lineTo(nodeB.x, nodeB.y);
                     
-                    ctx.strokeStyle = STYLE.linkColor;
-                    ctx.lineWidth = STYLE.linkWidth;
-                    ctx.shadowBlur = 10;
-                    ctx.shadowColor = STYLE.linkGlowColor;
+                    ctx.strokeStyle = isSelectedLink ? STYLE.selectedLinkColor : STYLE.linkColor;
+                    ctx.lineWidth = isSelectedLink ? STYLE.linkWidth * 1.5 : STYLE.linkWidth;
+                    ctx.shadowBlur = isSelectedLink ? 15 : 10;
+                    ctx.shadowColor = isSelectedLink ? STYLE.selectedLinkGlow : STYLE.linkGlowColor;
                     
                     ctx.stroke();
                     ctx.shadowBlur = 0; // Reset
@@ -353,11 +395,25 @@
         }
 
         // Interacción del ratón
+        canvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault(); // Prevenir menú contextual por defecto
+        });
+
         canvas.addEventListener('mousedown', (e) => {
             const rect = canvas.getBoundingClientRect();
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
             const clickedNode = getNodeAt(x, y);
+            const clickedLink = !clickedNode ? getLinkAt(x, y) : null;
+
+            // Click derecho
+            if (e.button === 2) {
+                if (clickedLink) {
+                    selectedLink = clickedLink;
+                    deleteSelectedLink();
+                }
+                return;
+            }
 
             if (e.shiftKey) {
                 // Modo conectar
@@ -365,16 +421,20 @@
                     isConnecting = true;
                     connectingNode = clickedNode;
                     mousePos = { x, y };
+                    selectedLink = null;
                 }
             } else {
                 // Modo selección / mover
                 if (clickedNode) {
                     selectedNode = clickedNode;
+                    selectedLink = null;
                     draggingNode = clickedNode;
-                    // Opcional: guardar estado al INICIAR el drag si queremos deshacer movimientos exactos
-                    // saveState(); 
+                } else if (clickedLink) {
+                    selectedLink = clickedLink;
+                    selectedNode = null;
                 } else {
                     selectedNode = null;
+                    selectedLink = null;
                 }
             }
             draw();
@@ -479,6 +539,13 @@
             if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
                 e.preventDefault();
                 undo();
+                return;
+            }
+            
+            // Borrar línea seleccionada
+            if (selectedLink && (e.key === 'Delete' || e.key === 'Backspace')) {
+                e.preventDefault();
+                deleteSelectedLink();
                 return;
             }
             
