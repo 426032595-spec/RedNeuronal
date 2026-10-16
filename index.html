@@ -1,652 +1,290 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mapa Mental - Red Neuronal</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <style>
-        body, html {
-            margin: 0;
-            padding: 0;
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
-            background-color: #050505;
-            color: white;
-            font-family: 'Inter', sans-serif;
-            user-select: none; /* Prevenir selección de texto accidental */
-        }
-        
-        #canvas-container {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            z-index: 1;
-        }
-
-        canvas {
-            display: block;
-        }
-
-        #ui-layer {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none; /* Dejar pasar los clicks al canvas */
-            z-index: 10;
-            padding: 1rem;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-        }
-
-        .ui-panel {
-            background: rgba(15, 23, 42, 0.7);
-            backdrop-filter: blur(8px);
-            border: 1px solid rgba(56, 189, 248, 0.3);
-            pointer-events: auto; /* Reactivar clicks en los paneles */
-            box-shadow: 0 0 15px rgba(56, 189, 248, 0.1);
-        }
-
-        .btn {
-            transition: all 0.2s;
-        }
-        .btn:hover {
-            box-shadow: 0 0 10px rgba(56, 189, 248, 0.6);
-            border-color: rgba(56, 189, 248, 0.8);
-        }
-        .btn:active {
-            transform: scale(0.95);
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mapa mental neuronal</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #05060a; overflow: hidden; font-family: system-ui, sans-serif; }
+  canvas { display: block; position: fixed; inset: 0; outline: none; }
+  #menu {
+    position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 8px; padding: 8px 12px; z-index: 10;
+    background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.15);
+    border-radius: 14px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  }
+  #menu button {
+    background: rgba(255,255,255,.08); color: #e8f7ff; border: 1px solid rgba(255,255,255,.18);
+    border-radius: 9px; padding: 7px 13px; font-size: 13px; cursor: pointer;
+  }
+  #menu button:hover { background: rgba(0,229,255,.25); }
+  #menu button:focus-visible, #editor:focus-visible { outline: 2px solid #00e5ff; outline-offset: 2px; }
+  #editor {
+    position: fixed; display: none; z-index: 20; box-sizing: border-box; width: 150px; height: 30px;
+    background: rgba(0,0,0,.85); color: #fff; border: 1px solid #00e5ff; border-radius: 8px;
+    text-align: center; font: 600 14px system-ui, sans-serif; padding: 4px 6px;
+  }
+  #hint {
+    position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); width: max-content; max-width: 94%;
+    color: rgba(255,255,255,.5); font-size: 12px; text-align: center; pointer-events: none;
+  }
+</style>
 </head>
 <body>
+<div id="menu">
+  <button id="btnUndo" title="Ctrl + Z">Deshacer</button>
+  <button id="btnStyle" title="Cambiar el diseño de los nodos">Estilo: Neurona</button>
+  <button id="btnPng">Exportar PNG</button>
+  <button id="btnPdf">Exportar PDF</button>
+</div>
+<canvas id="c" tabindex="0"></canvas>
+<input id="editor" type="text" aria-label="Texto del nodo">
+<div id="hint">Doble clic: crear o editar · Tab: nodo hijo · C: conectar · Supr: borrar · Ctrl+Z: deshacer</div>
 
-    <!-- Contenedor del Canvas -->
-    <div id="canvas-container">
-        <canvas id="networkCanvas"></canvas>
-        <input type="text" id="nodeInput" class="absolute z-20 bg-slate-900 text-white border border-sky-500 rounded px-2 py-1 text-center font-sans text-sm outline-none shadow-lg shadow-sky-500/50" style="display:none; transform: translate(-50%, -50%); width: 140px;" autocomplete="off" placeholder="Texto del nodo...">
-    </div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+(() => {
+  const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+  const editor = document.getElementById('editor'), hint = document.getElementById('hint');
+  const R = 34, TOL = 6, HINT = hint.textContent;
+  const COLORS = ['#00e5ff', '#ff3df2', '#7cff4d', '#ffb300', '#8a6bff', '#ff5c7a'];
 
-    <!-- Capa de Interfaz de Usuario -->
-    <div id="ui-layer">
-        <!-- Cabecera y Controles -->
-        <div class="flex justify-between items-start">
-            <div class="ui-panel rounded-xl p-4">
-                <h1 class="text-xl font-bold text-sky-400 mb-2 drop-shadow-md">NeuroMap Interactivo</h1>
-                <p class="text-xs text-slate-300 max-w-xs">
-                    Crea tu mapa mental con estilo de red neuronal. Los nodos y conexiones brillan en la oscuridad.
-                </p>
-            </div>
-            
-            <div class="ui-panel rounded-xl p-2 flex gap-2">
-                <button id="btnAdd" class="btn bg-slate-800 border border-slate-600 text-sky-400 px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2" title="Atajo: Tecla 'A' o Doble Click">
-                    <span>+ Añadir Nodo (A)</span>
-                </button>
-                <button id="btnUndo" class="btn bg-slate-800 border border-slate-600 text-sky-400 px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2" title="Atajo: Ctrl + Z">
-                    <span>Deshacer (Ctrl+Z)</span>
-                </button>
-                <button id="btnClear" class="btn bg-slate-800 border border-slate-600 text-red-400 px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2">
-                    <span>Limpiar Todo</span>
-                </button>
-                <div class="w-px bg-slate-700 mx-1"></div>
-                <button id="btnExportImg" class="btn bg-slate-800 border border-slate-600 text-emerald-400 px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2" title="Descargar como PNG">
-                    <span>🖼️ Imagen</span>
-                </button>
-                <button id="btnExportPDF" class="btn bg-slate-800 border border-slate-600 text-rose-400 px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2" title="Descargar como PDF">
-                    <span>📄 PDF</span>
-                </button>
-            </div>
-        </div>
+  let nodes = [], links = [], nextId = 1, colorIdx = 0;
+  let selNode = null, selLink = null, drag = null, linking = null, mouse = { x: 0, y: 0 };
+  let editing = null, editInfo = null, conn = null, history = [];
 
-        <!-- Instrucciones (Esquina inferior izquierda) -->
-        <div class="ui-panel rounded-xl p-4 self-start">
-            <h2 class="text-sm font-bold text-sky-400 mb-2">Controles y Atajos:</h2>
-            <ul class="text-xs text-slate-300 space-y-1">
-                <li><b class="text-sky-300">Doble Click</b>: Crear nodo / Editar texto</li>
-                <li><b class="text-sky-300">Arrastrar</b>: Mover nodo</li>
-                <li><b class="text-sky-300">Shift + Arrastrar</b>: Conectar nodos</li>
-                <li><b class="text-sky-300">Click en Nodo</b>: Seleccionar / Escribir directo</li>
-                <li><b class="text-sky-300">Suprimir / Del</b>: Borrar seleccionado</li>
-                <li><b class="text-sky-300">Ctrl + Z</b>: Deshacer acción</li>
-                <li><b class="text-sky-300">A</b>: Añadir nodo en el centro</li>
-            </ul>
-        </div>
-    </div>
+  /* ---------- Historial ---------- */
+  const snapshot = () => JSON.stringify({ nodes, links, nextId, colorIdx });
+  const pushHistory = s => { history.push(s || snapshot()); if (history.length > 200) history.shift(); };
+  function undo() {
+    if (editing || !history.length) return;
+    const s = JSON.parse(history.pop());
+    nodes = s.nodes; links = s.links; nextId = s.nextId; colorIdx = s.colorIdx;
+    selNode = selLink = conn = null; draw();
+  }
 
-    <script>
-        // Configuración inicial y variables de estado
-        const canvas = document.getElementById('networkCanvas');
-        const ctx = canvas.getContext('2d');
-        
-        let width, height;
-        let nodes = [];
-        let links = [];
-        let history = [];
-        
-        // Variables de interacción
-        let selectedNode = null;
-        let selectedLink = null;
-        let draggingNode = null;
-        let connectingNode = null; // Nodo origen de una nueva conexión
-        let mousePos = { x: 0, y: 0 };
-        let isConnecting = false;
+  /* ---------- Geometría ---------- */
+  function distanceToSegment(px, py, ax, ay, bx, by) {
+    const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
+    let t = len2 === 0 ? 0 : ((px - ax) * dx + (py - ay) * dy) / len2;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+  }
+  const byId = id => nodes.find(n => n.id === id);
+  const STYLES = ['Neurona', 'Anillo', 'Píldora', 'Sólido'];
+  let style = 0;
+  const sizeOf = n => {
+    if (style !== 2) return { w: 2 * R, h: 2 * R };
+    ctx.font = '600 13px system-ui, sans-serif';
+    return { w: Math.max(76, ctx.measureText(n.text || ' ').width + 32), h: 38 };
+  };
+  const hit = (n, x, y) => {
+    if (style !== 2) return Math.hypot(x - n.x, y - n.y) <= R;
+    const z = sizeOf(n); return Math.abs(x - n.x) <= z.w / 2 && Math.abs(y - n.y) <= z.h / 2;
+  };
+  const nodeAt = (x, y) => { for (let i = nodes.length - 1; i >= 0; i--) if (hit(nodes[i], x, y)) return nodes[i]; return null; };
+  const linkAt = (x, y) => links.slice().reverse().find(l => { const a = byId(l.a), b = byId(l.b); return a && b && distanceToSegment(x, y, a.x, a.y, b.x, b.y) <= TOL; });
+  const pos = e => { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+  const connected = (a, b) => links.some(l => (l.a === a.id && l.b === b.id) || (l.a === b.id && l.b === a.id));
+  const newNode = (x, y) => { const n = { id: nextId++, x, y, text: 'Idea', color: COLORS[colorIdx++ % COLORS.length] }; nodes.push(n); return n; };
 
-        const nodeInput = document.getElementById('nodeInput');
-        let editingNode = null;
+  /* ---------- Dibujo ---------- */
+  function wrapText(text, maxW) {
+    const lines = []; let cur = '';
+    for (const w of (text || '').split(/\s+/).filter(Boolean)) {
+      const t = cur ? cur + ' ' + w : w;
+      if (ctx.measureText(t).width > maxW && cur) { lines.push(cur); cur = w; } else cur = t;
+    }
+    if (cur) lines.push(cur);
+    return lines;
+  }
+  function rr(g, x, y, w, h, r) {
+    g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+    g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+  }
+  function render(g, w, h, preview) {
+    g.fillStyle = '#05060a'; g.fillRect(0, 0, w, h);
+    for (const l of links) {
+      const a = byId(l.a), b = byId(l.b); if (!a || !b) continue;
+      const sel = !preview && l === selLink;
+      g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y);
+      g.strokeStyle = sel ? '#ff2a2a' : 'rgba(140,200,255,.55)'; g.lineWidth = sel ? 4 : 1.6;
+      g.shadowColor = sel ? '#ff2a2a' : '#4aa8ff'; g.shadowBlur = sel ? 12 : 5; g.stroke(); g.shadowBlur = 0;
+    }
+    const guide = conn && conn.target !== conn.from ? [conn.from, conn.target] : linking ? [linking, mouse] : null;
+    if (!preview && guide) {
+      g.beginPath(); g.moveTo(guide[0].x, guide[0].y); g.lineTo(guide[1].x, guide[1].y);
+      g.setLineDash([6, 6]); g.strokeStyle = conn ? '#fff' : 'rgba(255,255,255,.5)'; g.lineWidth = 2; g.stroke(); g.setLineDash([]);
+    }
+    g.font = '600 13px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    for (const n of nodes) {
+      const sel = !preview && n === selNode, tgt = !preview && conn && n === conn.target && n !== conn.from;
+      const hi = sel || tgt, z = sizeOf(n);
+      g.beginPath();
+      if (style === 2) rr(g, n.x - z.w / 2, n.y - z.h / 2, z.w, z.h, z.h / 2); else g.arc(n.x, n.y, R, 0, Math.PI * 2);
+      if (style === 0) {
+        const grad = g.createRadialGradient(n.x, n.y, 4, n.x, n.y, R);
+        grad.addColorStop(0, n.color + 'cc'); grad.addColorStop(1, n.color + '22'); g.fillStyle = grad;
+      } else if (style === 3) g.fillStyle = n.color + 'dd';
+      else g.fillStyle = '#0b0e18';
+      g.shadowColor = hi ? '#fff' : n.color; g.shadowBlur = hi ? 28 : style === 3 ? 10 : 16; g.fill(); g.shadowBlur = 0;
+      g.lineWidth = hi ? 3 : style === 1 ? 2.5 : 1.5; g.strokeStyle = hi ? '#fff' : n.color; g.stroke();
+    }
+    for (const n of nodes) { // texto al final, con contorno negro
+      const lines = style === 2 ? [n.text || ''] : wrapText(n.text, R * 1.7).slice(0, 3), lh = 15, y0 = n.y - ((lines.length - 1) * lh) / 2;
+      lines.forEach((ln, i) => {
+        g.lineJoin = 'round'; g.lineWidth = 4; g.strokeStyle = '#000'; g.strokeText(ln, n.x, y0 + i * lh);
+        g.fillStyle = '#fff'; g.fillText(ln, n.x, y0 + i * lh);
+      });
+    }
+  }
+  const draw = () => render(ctx, cv.clientWidth, cv.clientHeight, false);
+  function resize() {
+    const d = window.devicePixelRatio || 1;
+    cv.width = innerWidth * d; cv.height = innerHeight * d;
+    cv.style.width = innerWidth + 'px'; cv.style.height = innerHeight + 'px';
+    ctx.setTransform(d, 0, 0, d, 0, 0); draw();
+  }
+  addEventListener('resize', resize);
 
-        // Estilos visuales
-        const STYLE = {
-            nodeRadius: 15,
-            nodeColor: '#0ea5e9', // Tailwind sky-500
-            nodeGlow: 'rgba(14, 165, 233, 0.8)',
-            selectedColor: '#38bdf8', // Tailwind sky-400
-            selectedGlow: 'rgba(56, 189, 248, 1)',
-            linkColor: 'rgba(14, 165, 233, 0.4)',
-            linkGlowColor: 'rgba(14, 165, 233, 0.6)',
-            linkWidth: 2,
-            tempLinkColor: 'rgba(250, 204, 21, 0.6)', // Yellowish temp link
-            selectedLinkColor: '#ef4444', // Tailwind red-500
-            selectedLinkGlow: 'rgba(239, 68, 68, 0.8)'
-        };
+  /* ---------- Edición de texto ---------- */
+  function startEdit(n, initial, isNew) {
+    editing = n; editInfo = { snap: snapshot(), orig: n.text, isNew };
+    Object.assign(editor.style, { display: 'block', left: n.x - 75 + 'px', top: n.y - 15 + 'px' });
+    editor.value = initial !== undefined ? initial : n.text;
+    if (initial !== undefined) n.text = initial;
+    draw(); editor.focus();
+    if (initial === undefined) editor.select();
+  }
+  function endEdit(cancel) {
+    if (!editing) return;
+    const n = editing, info = editInfo; editing = editInfo = null; editor.style.display = 'none';
+    if (cancel) n.text = info.orig;
+    else if (!info.isNew && n.text !== info.orig) pushHistory(info.snap);
+    draw(); cv.focus();
+  }
+  editor.addEventListener('input', () => { if (editing) { editing.text = editor.value; draw(); } });
+  editor.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Enter') endEdit(false);
+    if (e.key === 'Escape') endEdit(true);
+  });
+  editor.addEventListener('blur', () => endEdit(false));
 
-        // Redimensionar canvas
-        function resize() {
-            width = window.innerWidth;
-            height = window.innerHeight;
-            canvas.width = width;
-            canvas.height = height;
-            draw();
-        }
-        window.addEventListener('resize', resize);
-        resize();
+  /* ---------- Ratón ---------- */
+  cv.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    const p = pos(e), l = linkAt(p.x, p.y);
+    if (l && !nodeAt(p.x, p.y)) { pushHistory(); links = links.filter(x => x !== l); if (selLink === l) selLink = null; draw(); }
+  });
+  cv.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    const p = pos(e); mouse = p; conn = null; hint.textContent = HINT; cv.focus();
+    const n = nodeAt(p.x, p.y);
+    if (n) {
+      selNode = n; selLink = null;
+      drag = { n, dx: p.x - n.x, dy: p.y - n.y, snap: snapshot(), moved: false, link: e.shiftKey };
+      if (e.shiftKey) linking = n;
+    } else { selNode = null; selLink = linkAt(p.x, p.y) || null; }
+    draw();
+  });
+  addEventListener('mousemove', e => {
+    mouse = pos(e);
+    if (!drag) return;
+    if (!drag.link) { drag.n.x = mouse.x - drag.dx; drag.n.y = mouse.y - drag.dy; drag.moved = true; }
+    draw();
+  });
+  addEventListener('mouseup', e => {
+    if (!drag) return;
+    if (drag.link) {
+      const t = nodeAt(mouse.x, mouse.y);
+      if (t && t !== drag.n && !connected(drag.n, t)) { pushHistory(drag.snap); links.push({ a: drag.n.id, b: t.id }); }
+    } else if (drag.moved) pushHistory(drag.snap);
+    drag = linking = null; draw();
+  });
+  cv.addEventListener('dblclick', e => {
+    const p = pos(e), n = nodeAt(p.x, p.y);
+    if (n) { selNode = n; startEdit(n); return; }
+    if (linkAt(p.x, p.y)) return;
+    pushHistory(); selNode = newNode(p.x, p.y); selLink = null; startEdit(selNode, undefined, true);
+  });
 
-        // Utilidades de Estado (Deshacer)
-        function saveState() {
-            // Guardar un máximo de 50 estados
-            if (history.length > 50) history.shift();
-            history.push({
-                nodes: JSON.parse(JSON.stringify(nodes)),
-                links: JSON.parse(JSON.stringify(links))
-            });
-            updateUndoButton();
-        }
+  /* ---------- Teclado ---------- */
+  function nearestInDirection(from, cur, dx, dy) {
+    let best = null, bestScore = Infinity;
+    for (const n of nodes) {
+      if (n === cur) continue;
+      const vx = n.x - cur.x, vy = n.y - cur.y, along = vx * dx + vy * dy;
+      if (along <= 0) continue;
+      const score = Math.hypot(vx, vy) + Math.abs(vx * dy - vy * dx) * 1.5; // penaliza desviarse del eje
+      if (score < bestScore) { bestScore = score; best = n; }
+    }
+    return best;
+  }
+  function endConnect() { conn = null; hint.textContent = HINT; draw(); }
 
-        function undo() {
-            if (history.length > 0) {
-                const previousState = history.pop();
-                nodes = previousState.nodes;
-                links = previousState.links;
-                selectedNode = null;
-                selectedLink = null;
-                draggingNode = null;
-                isConnecting = false;
-                draw();
-                updateUndoButton();
-            }
-        }
+  addEventListener('keydown', e => {
+    if (editing) return;
+    const k = e.key;
+    if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === 'z') { e.preventDefault(); undo(); return; }
 
-        function updateUndoButton() {
-            const btn = document.getElementById('btnUndo');
-            if (history.length === 0) {
-                btn.style.opacity = '0.5';
-                btn.style.cursor = 'not-allowed';
-            } else {
-                btn.style.opacity = '1';
-                btn.style.cursor = 'pointer';
-            }
-        }
+    // Modo conectar: flechas eligen destino, Enter confirma, Esc cancela
+    if (conn) {
+      e.preventDefault();
+      const dir = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[k];
+      if (dir) { const n = nearestInDirection(conn.from, conn.target, dir[0], dir[1]); if (n) conn.target = n; draw(); }
+      else if (k === 'Enter') {
+        if (conn.target !== conn.from && !connected(conn.from, conn.target)) { pushHistory(); links.push({ a: conn.from.id, b: conn.target.id }); }
+        endConnect();
+      } else if (k === 'Escape' || k.toLowerCase() === 'c') endConnect();
+      return;
+    }
 
-        // Generar un ID único corto
-        function generateId() {
-            return Math.random().toString(36).substr(2, 9);
-        }
+    if (k === 'Delete' || k === 'Backspace') {
+      e.preventDefault();
+      if (selNode) { pushHistory(); const id = selNode.id; nodes = nodes.filter(n => n !== selNode); links = links.filter(l => l.a !== id && l.b !== id); selNode = null; }
+      else if (selLink) { pushHistory(); links = links.filter(l => l !== selLink); selLink = null; }
+      draw(); return;
+    }
+    if (!selNode) return;
+    if (k.toLowerCase() === 'c' && !e.ctrlKey && !e.metaKey && nodes.length > 1) {
+      e.preventDefault(); conn = { from: selNode, target: selNode };
+      hint.textContent = 'Conectar: flechas para elegir destino · Enter confirma · Esc cancela'; draw(); return;
+    }
+    if (k === 'Tab') { // nodo hijo ya conectado
+      e.preventDefault(); pushHistory();
+      const kids = links.filter(l => l.a === selNode.id || l.b === selNode.id).length;
+      const ang = -Math.PI / 2 + kids * 0.9;
+      const p = selNode;
+      const child = newNode(Math.min(innerWidth - 50, Math.max(50, p.x + Math.cos(ang) * 130)), Math.min(innerHeight - 50, Math.max(80, p.y + Math.sin(ang) * 130)));
+      links.push({ a: p.id, b: child.id }); selNode = child; startEdit(child, undefined, true); return;
+    }
+    if (k === 'Enter' || k === 'F2') { e.preventDefault(); startEdit(selNode); return; }
+    if (k.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); startEdit(selNode, k); }
+  });
 
-        // Lógica de Nodos y Enlaces
-        function addNode(x, y) {
-            saveState();
-            const newNode = {
-                id: generateId(),
-                x: x,
-                y: y,
-                vx: 0, // velocity x para posible animación futura
-                vy: 0,
-                text: "" // Texto del nodo
-            };
-            nodes.push(newNode);
-            selectedNode = newNode;
-            draw();
-            return newNode;
-        }
+  /* ---------- Exportación ---------- */
+  function exportCanvas() {
+    const d = window.devicePixelRatio || 1, off = document.createElement('canvas');
+    off.width = cv.clientWidth * d; off.height = cv.clientHeight * d;
+    const g = off.getContext('2d'); g.scale(d, d); render(g, cv.clientWidth, cv.clientHeight, true);
+    return off;
+  }
+  function download(url, name) { const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
+  document.getElementById('btnPng').onclick = () => download(exportCanvas().toDataURL('image/png'), 'mapa-mental.png');
+  document.getElementById('btnPdf').onclick = () => {
+    if (!window.jspdf) { alert('No se pudo cargar jsPDF. Revisa tu conexión a internet.'); return; }
+    const off = exportCanvas(), w = off.width, h = off.height;
+    const pdf = new window.jspdf.jsPDF({ orientation: w >= h ? 'landscape' : 'portrait', unit: 'px', format: [w, h], hotfixes: ['px_scaling'] });
+    pdf.addImage(off.toDataURL('image/png'), 'PNG', 0, 0, w, h);
+    pdf.save('mapa-mental.pdf');
+  };
+  document.getElementById('btnUndo').onclick = undo;
+  const btnStyle = document.getElementById('btnStyle');
+  btnStyle.onclick = () => { style = (style + 1) % STYLES.length; btnStyle.textContent = 'Estilo: ' + STYLES[style]; draw(); cv.focus(); };
 
-        function deleteSelected() {
-            if (selectedNode) {
-                saveState();
-                // Eliminar enlaces asociados
-                links = links.filter(l => l.from !== selectedNode.id && l.to !== selectedNode.id);
-                // Eliminar nodo
-                nodes = nodes.filter(n => n.id !== selectedNode.id);
-                selectedNode = null;
-                draw();
-            }
-        }
-
-        function deleteSelectedLink() {
-            if (selectedLink) {
-                saveState();
-                links = links.filter(l => l !== selectedLink);
-                selectedLink = null;
-                draw();
-            }
-        }
-
-        function addLink(fromId, toId) {
-            // Evitar auto-conexiones o conexiones duplicadas
-            if (fromId === toId) return;
-            const exists = links.some(l => 
-                (l.from === fromId && l.to === toId) || 
-                (l.from === toId && l.to === fromId)
-            );
-            if (!exists) {
-                saveState();
-                links.push({ from: fromId, to: toId });
-            }
-        }
-
-        // Helpers de geometría
-        function getNodeAt(x, y) {
-            for (let i = nodes.length - 1; i >= 0; i--) {
-                const node = nodes[i];
-                const dx = x - node.x;
-                const dy = y - node.y;
-                // Área de clic un poco más grande que el radio visible
-                if (dx * dx + dy * dy <= (STYLE.nodeRadius + 10) * (STYLE.nodeRadius + 10)) {
-                    return node;
-                }
-            }
-            return null;
-        }
-
-        function getNodeById(id) {
-            return nodes.find(n => n.id === id);
-        }
-
-        // Calcula la distancia de un punto a un segmento de línea
-        function distanceToSegment(p, v, w) {
-            let l2 = (w.x - v.x) ** 2 + (w.y - v.y) ** 2;
-            if (l2 === 0) return Math.hypot(p.x - v.x, p.y - v.y);
-            let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
-            t = Math.max(0, Math.min(1, t));
-            let proj = { x: v.x + t * (w.x - v.x), y: v.y + t * (w.y - v.y) };
-            return Math.hypot(p.x - proj.x, p.y - proj.y);
-        }
-
-        // Detecta si se ha hecho clic cerca de una línea
-        function getLinkAt(x, y) {
-            const tolerance = 6; // Pixeles de tolerancia para hacer clic en la línea
-            for (let i = links.length - 1; i >= 0; i--) {
-                const link = links[i];
-                const nodeA = getNodeById(link.from);
-                const nodeB = getNodeById(link.to);
-                if (nodeA && nodeB) {
-                    const dist = distanceToSegment({x, y}, nodeA, nodeB);
-                    if (dist <= tolerance) {
-                        return link;
-                    }
-                }
-            }
-            return null;
-        }
-
-        // Dibujado (Render Loop)
-        function draw() {
-            // Rellenar canvas con el color de fondo para que al exportar se vea negro
-            ctx.fillStyle = '#050505';
-            ctx.fillRect(0, 0, width, height);
-
-            // Dibujar enlaces consolidados
-            ctx.lineCap = 'round';
-            links.forEach(link => {
-                const nodeA = getNodeById(link.from);
-                const nodeB = getNodeById(link.to);
-                
-                if (nodeA && nodeB) {
-                    const isSelectedLink = (selectedLink === link);
-                    
-                    ctx.beginPath();
-                    ctx.moveTo(nodeA.x, nodeA.y);
-                    ctx.lineTo(nodeB.x, nodeB.y);
-                    
-                    ctx.strokeStyle = isSelectedLink ? STYLE.selectedLinkColor : STYLE.linkColor;
-                    ctx.lineWidth = isSelectedLink ? STYLE.linkWidth * 1.5 : STYLE.linkWidth;
-                    ctx.shadowBlur = isSelectedLink ? 15 : 10;
-                    ctx.shadowColor = isSelectedLink ? STYLE.selectedLinkGlow : STYLE.linkGlowColor;
-                    
-                    ctx.stroke();
-                    ctx.shadowBlur = 0; // Reset
-                }
-            });
-
-            // Dibujar enlace temporal si se está conectando
-            if (isConnecting && connectingNode) {
-                ctx.beginPath();
-                ctx.moveTo(connectingNode.x, connectingNode.y);
-                ctx.lineTo(mousePos.x, mousePos.y);
-                ctx.strokeStyle = STYLE.tempLinkColor;
-                ctx.lineWidth = 2;
-                ctx.setLineDash([5, 5]);
-                ctx.stroke();
-                ctx.setLineDash([]); // Reset
-            }
-
-            // Dibujar Nodos
-            nodes.forEach(node => {
-                const isSelected = (selectedNode && selectedNode.id === node.id);
-                
-                ctx.beginPath();
-                ctx.arc(node.x, node.y, STYLE.nodeRadius, 0, Math.PI * 2);
-                
-                // Color base
-                ctx.fillStyle = isSelected ? STYLE.selectedColor : STYLE.nodeColor;
-                
-                // Brillo (Sombra)
-                ctx.shadowBlur = isSelected ? 25 : 15;
-                ctx.shadowColor = isSelected ? STYLE.selectedGlow : STYLE.nodeGlow;
-                
-                ctx.fill();
-                
-                // Borde interior blanco/claro para dar volumen
-                ctx.lineWidth = 2;
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
-                ctx.stroke();
-                
-                // Reset sombra para no afectar otras cosas
-                ctx.shadowBlur = 0;
-                
-                // Dibujar núcleo central
-                ctx.beginPath();
-                ctx.arc(node.x, node.y, STYLE.nodeRadius * 0.4, 0, Math.PI * 2);
-                ctx.fillStyle = '#ffffff';
-                ctx.fill();
-                
-                // Dibujar texto del nodo si existe
-                if (node.text) {
-                    ctx.font = "bold 13px 'Inter', sans-serif";
-                    ctx.textAlign = "center";
-                    ctx.textBaseline = "middle";
-                    
-                    // Contorno negro para destacar sobre las líneas y fondo
-                    ctx.lineJoin = "round";
-                    ctx.lineWidth = 3;
-                    ctx.strokeStyle = "#050505";
-                    ctx.strokeText(node.text, node.x, node.y + 25);
-                    
-                    // Texto blanco
-                    ctx.fillStyle = "#ffffff";
-                    ctx.fillText(node.text, node.x, node.y + 25);
-                }
-            });
-        }
-
-        // Interacción del ratón
-        canvas.addEventListener('contextmenu', (e) => {
-            e.preventDefault(); // Prevenir menú contextual por defecto
-        });
-
-        canvas.addEventListener('mousedown', (e) => {
-            const rect = canvas.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const y = e.clientY - rect.top;
-            const clickedNode = getNodeAt(x, y);
-            const clickedLink = !clickedNode ? getLinkAt(x, y) : null;
-
-            // Click derecho
-            if (e.button === 2) {
-                if (clickedLink) {
-                    selectedLink = clickedLink;
-                    deleteSelectedLink();
-                }
-                return;
-            }
-
-            if (e.shiftKey) {
-                // Modo conectar
-                if (clickedNode) {
-                    isConnecting = true;
-                    connectingNode = clickedNode;
-                    mousePos = { x, y };
-                    selectedLink = null;
-                }
-            } else {
-                // Modo selección / mover
-                if (clickedNode) {
-                    selectedNode = clickedNode;
-                    selectedLink = null;
-                    draggingNode = clickedNode;
-                } else if (clickedLink) {
-                    selectedLink = clickedLink;
-                    selectedNode = null;
-                } else {
-                    selectedNode = null;
-                    selectedLink = null;
-                }
-            }
-            draw();
-        });
-
-        canvas.addEventListener('mousemove', (e) => {
-            const rect = canvas.getBoundingClientRect();
-            mousePos.x = e.clientX - rect.left;
-            mousePos.y = e.clientY - rect.top;
-
-            if (draggingNode && !isConnecting) {
-                draggingNode.x = mousePos.x;
-                draggingNode.y = mousePos.y;
-                if (editingNode === draggingNode) {
-                    updateInputPosition(); // Mantener el input sobre el nodo mientras se arrastra
-                }
-                draw();
-            } else if (isConnecting) {
-                draw();
-            }
-        });
-
-        canvas.addEventListener('mouseup', (e) => {
-            const rect = canvas.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const y = e.clientY - rect.top;
-
-            if (isConnecting && connectingNode) {
-                const targetNode = getNodeAt(x, y);
-                if (targetNode && targetNode.id !== connectingNode.id) {
-                    addLink(connectingNode.id, targetNode.id);
-                }
-            } else if (draggingNode) {
-                // Si queremos que cada movimiento se guarde en el historial
-                // Deberíamos refinar esto para no guardar si no se movió apenas.
-                // Para este ejemplo, lo omitimos para no saturar el historial con micro-movimientos
-            }
-
-            draggingNode = null;
-            isConnecting = false;
-            connectingNode = null;
-            draw();
-        });
-
-        canvas.addEventListener('dblclick', (e) => {
-            const rect = canvas.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const y = e.clientY - rect.top;
-            
-            const clickedNode = getNodeAt(x, y);
-            if (clickedNode) {
-                // Editar texto del nodo existente
-                showInputForNode(clickedNode);
-            } else {
-                // Añadir y editar un nodo nuevo
-                const newNode = addNode(x, y);
-                showInputForNode(newNode);
-            }
-        });
-
-        // Funciones para el Input flotante
-        function showInputForNode(node) {
-            editingNode = node;
-            nodeInput.style.display = 'block';
-            nodeInput.value = node.text || "";
-            updateInputPosition();
-            setTimeout(() => nodeInput.focus(), 10);
-        }
-
-        function updateInputPosition() {
-            if (editingNode) {
-                nodeInput.style.left = editingNode.x + 'px';
-                nodeInput.style.top = (editingNode.y + 25) + 'px';
-            }
-        }
-
-        nodeInput.addEventListener('input', (e) => {
-            if (editingNode) {
-                editingNode.text = e.target.value;
-                draw();
-            }
-        });
-
-        nodeInput.addEventListener('blur', () => {
-            if (editingNode) saveState();
-            nodeInput.style.display = 'none';
-            editingNode = null;
-        });
-
-        nodeInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                nodeInput.blur();
-            }
-        });
-
-        // Controles de Teclado
-        window.addEventListener('keydown', (e) => {
-            // Evitar conflictos si se está escribiendo en el input flotante
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-
-            // Ctrl + Z
-            if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
-                e.preventDefault();
-                undo();
-                return;
-            }
-            
-            // Borrar línea seleccionada
-            if (selectedLink && (e.key === 'Delete' || e.key === 'Backspace')) {
-                e.preventDefault();
-                deleteSelectedLink();
-                return;
-            }
-            
-            // Lógica de escritura directa sobre un nodo seleccionado
-            if (selectedNode) {
-                if (e.key === 'Delete') {
-                    e.preventDefault();
-                    deleteSelected();
-                    return;
-                }
-                
-                if (e.key === 'Backspace') {
-                    e.preventDefault();
-                    if (selectedNode.text && selectedNode.text.length > 0) {
-                        saveState();
-                        selectedNode.text = selectedNode.text.slice(0, -1);
-                        draw();
-                    }
-                    return;
-                }
-                
-                // Escribir texto directo (caracteres normales)
-                if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
-                    saveState();
-                    selectedNode.text = (selectedNode.text || "") + e.key;
-                    draw();
-                    return; 
-                }
-            }
-
-            // Añadir nodo en centro (Tecla A) (solo si no estamos escribiendo dentro de un nodo)
-            if (e.key.toLowerCase() === 'a' && !selectedNode) {
-                addNode(width / 2, height / 2);
-            }
-        });
-
-        // Botones UI
-        document.getElementById('btnAdd').addEventListener('click', () => {
-            addNode(width / 2 + (Math.random()*40-20), height / 2 + (Math.random()*40-20));
-        });
-
-        document.getElementById('btnUndo').addEventListener('click', undo);
-
-        document.getElementById('btnClear').addEventListener('click', () => {
-            if (nodes.length > 0) {
-                saveState();
-                nodes = [];
-                links = [];
-                selectedNode = null;
-                draw();
-            }
-        });
-
-        // Lógica de exportación de Imagen
-        document.getElementById('btnExportImg').addEventListener('click', () => {
-            const link = document.createElement('a');
-            link.download = 'mapa_neuronal.png';
-            link.href = canvas.toDataURL('image/png');
-            link.click();
-        });
-
-        // Lógica de exportación a PDF usando jsPDF
-        document.getElementById('btnExportPDF').addEventListener('click', () => {
-            const { jsPDF } = window.jspdf;
-            
-            // Adaptar la orientación del PDF al tamaño de la ventana
-            const orientation = width > height ? 'landscape' : 'portrait';
-            const pdf = new jsPDF({
-                orientation: orientation,
-                unit: 'px',
-                format: [width, height]
-            });
-            
-            const imgData = canvas.toDataURL('image/png');
-            pdf.addImage(imgData, 'PNG', 0, 0, width, height);
-            pdf.save('mapa_neuronal.pdf');
-        });
-
-        // Inicialización
-        updateUndoButton();
-        
-        // Añadir algunos nodos iniciales de ejemplo para mostrar visualmente
-        setTimeout(() => {
-            const n1 = addNode(width/2 - 100, height/2 - 50);
-            n1.text = "Idea Principal";
-            const n2 = addNode(width/2 + 100, height/2 - 50);
-            n2.text = "Concepto A";
-            const n3 = addNode(width/2, height/2 + 100);
-            n3.text = "Concepto B";
-            
-            // Forzar los IDs temporalmente para crear conexiones sin error de timing
-            links.push({from: nodes[0].id, to: nodes[1].id});
-            links.push({from: nodes[1].id, to: nodes[2].id});
-            links.push({from: nodes[2].id, to: nodes[0].id});
-            
-            // Limpiar historial inicial para no deshacer la pantalla de bienvenida directamente
-            history = [];
-            updateUndoButton();
-            draw();
-        }, 100);
-
-    </script>
+  resize(); cv.focus();
+})();
+</script>
 </body>
 </html>
