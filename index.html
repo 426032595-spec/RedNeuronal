@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mapa Mental - Red Neuronal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #050505;
+            color: white;
+            font-family: 'Inter', sans-serif;
+            user-select: none; /* Prevenir selección de texto accidental */
+        }
+        
+        #canvas-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Dejar pasar los clicks al canvas */
+            z-index: 10;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .ui-panel {
+            background: rgba(15, 23, 42, 0.7);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            pointer-events: auto; /* Reactivar clicks en los paneles */
+            box-shadow: 0 0 15px rgba(56, 189, 248, 0.1);
+        }
+
+        .btn {
+            transition: all 0.2s;
+        }
+        .btn:hover {
+            box-shadow: 0 0 10px rgba(56, 189, 248, 0.6);
+            border-color: rgba(56, 189, 248, 0.8);
+        }
+        .btn:active {
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Contenedor del Canvas -->
+    <div id="canvas-container">
+        <canvas id="networkCanvas"></canvas>
+        <input type="text" id="nodeInput" class="absolute z-20 bg-slate-900 text-white border border-sky-500 rounded px-2 py-1 text-center font-sans text-sm outline-none shadow-lg shadow-sky-500/50" style="display:none; transform: translate(-50%, -50%); width: 140px;" autocomplete="off" placeholder="Texto del nodo...">
+    </div>
+
+    <!-- Capa de Interfaz de Usuario -->
+    <div id="ui-layer">
+        <!-- Cabecera y Controles -->
+        <div class="flex justify-between items-start">
+            <div class="ui-panel rounded-xl p-4">
+                <h1 class="text-xl font-bold text-sky-400 mb-2 drop-shadow-md">NeuroMap Interactivo</h1>
+                <p class="text-xs text-slate-300 max-w-xs">
+                    Crea tu mapa mental con estilo de red neuronal. Los nodos y conexiones brillan en la oscuridad.
+                </p>
+            </div>
+            
+            <div class="ui-panel rounded-xl p-2 flex gap-2">
+                <button id="btnAdd" class="btn bg-slate-800 border border-slate-600 text-sky-400 px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2" title="Atajo: Tecla 'A' o Doble Click">
+                    <span>+ Añadir Nodo (A)</span>
+                </button>
+                <button id="btnUndo" class="btn bg-slate-800 border border-slate-600 text-sky-400 px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2" title="Atajo: Ctrl + Z">
+                    <span>Deshacer (Ctrl+Z)</span>
+                </button>
+                <button id="btnClear" class="btn bg-slate-800 border border-slate-600 text-red-400 px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2">
+                    <span>Limpiar Todo</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Instrucciones (Esquina inferior izquierda) -->
+        <div class="ui-panel rounded-xl p-4 self-start">
+            <h2 class="text-sm font-bold text-sky-400 mb-2">Controles y Atajos:</h2>
+            <ul class="text-xs text-slate-300 space-y-1">
+                <li><b class="text-sky-300">Doble Click</b>: Crear nodo / Editar texto</li>
+                <li><b class="text-sky-300">Arrastrar</b>: Mover nodo</li>
+                <li><b class="text-sky-300">Shift + Arrastrar</b>: Conectar nodos</li>
+                <li><b class="text-sky-300">Click en Nodo</b>: Seleccionar / Escribir directo</li>
+                <li><b class="text-sky-300">Suprimir / Del</b>: Borrar seleccionado</li>
+                <li><b class="text-sky-300">Ctrl + Z</b>: Deshacer acción</li>
+                <li><b class="text-sky-300">A</b>: Añadir nodo en el centro</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        // Configuración inicial y variables de estado
+        const canvas = document.getElementById('networkCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        let width, height;
+        let nodes = [];
+        let links = [];
+        let history = [];
+        
+        // Variables de interacción
+        let selectedNode = null;
+        let draggingNode = null;
+        let connectingNode = null; // Nodo origen de una nueva conexión
+        let mousePos = { x: 0, y: 0 };
+        let isConnecting = false;
+
+        const nodeInput = document.getElementById('nodeInput');
+        let editingNode = null;
+
+        // Estilos visuales
+        const STYLE = {
+            nodeRadius: 15,
+            nodeColor: '#0ea5e9', // Tailwind sky-500
+            nodeGlow: 'rgba(14, 165, 233, 0.8)',
+            selectedColor: '#38bdf8', // Tailwind sky-400
+            selectedGlow: 'rgba(56, 189, 248, 1)',
+            linkColor: 'rgba(14, 165, 233, 0.4)',
+            linkGlowColor: 'rgba(14, 165, 233, 0.6)',
+            linkWidth: 2,
+            tempLinkColor: 'rgba(250, 204, 21, 0.6)' // Yellowish temp link
+        };
+
+        // Redimensionar canvas
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            draw();
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // Utilidades de Estado (Deshacer)
+        function saveState() {
+            // Guardar un máximo de 50 estados
+            if (history.length > 50) history.shift();
+            history.push({
+                nodes: JSON.parse(JSON.stringify(nodes)),
+                links: JSON.parse(JSON.stringify(links))
+            });
+            updateUndoButton();
+        }
+
+        function undo() {
+            if (history.length > 0) {
+                const previousState = history.pop();
+                nodes = previousState.nodes;
+                links = previousState.links;
+                selectedNode = null;
+                draggingNode = null;
+                isConnecting = false;
+                draw();
+                updateUndoButton();
+            }
+        }
+
+        function updateUndoButton() {
+            const btn = document.getElementById('btnUndo');
+            if (history.length === 0) {
+                btn.style.opacity = '0.5';
+                btn.style.cursor = 'not-allowed';
+            } else {
+                btn.style.opacity = '1';
+                btn.style.cursor = 'pointer';
+            }
+        }
+
+        // Generar un ID único corto
+        function generateId() {
+            return Math.random().toString(36).substr(2, 9);
+        }
+
+        // Lógica de Nodos y Enlaces
+        function addNode(x, y) {
+            saveState();
+            const newNode = {
+                id: generateId(),
+                x: x,
+                y: y,
+                vx: 0, // velocity x para posible animación futura
+                vy: 0,
+                text: "" // Texto del nodo
+            };
+            nodes.push(newNode);
+            selectedNode = newNode;
+            draw();
+            return newNode;
+        }
+
+        function deleteSelected() {
+            if (selectedNode) {
+                saveState();
+                // Eliminar enlaces asociados
+                links = links.filter(l => l.from !== selectedNode.id && l.to !== selectedNode.id);
+                // Eliminar nodo
+                nodes = nodes.filter(n => n.id !== selectedNode.id);
+                selectedNode = null;
+                draw();
+            }
+        }
+
+        function addLink(fromId, toId) {
+            // Evitar auto-conexiones o conexiones duplicadas
+            if (fromId === toId) return;
+            const exists = links.some(l => 
+                (l.from === fromId && l.to === toId) || 
+                (l.from === toId && l.to === fromId)
+            );
+            if (!exists) {
+                saveState();
+                links.push({ from: fromId, to: toId });
+            }
+        }
+
+        // Helpers de geometría
+        function getNodeAt(x, y) {
+            for (let i = nodes.length - 1; i >= 0; i--) {
+                const node = nodes[i];
+                const dx = x - node.x;
+                const dy = y - node.y;
+                // Área de clic un poco más grande que el radio visible
+                if (dx * dx + dy * dy <= (STYLE.nodeRadius + 10) * (STYLE.nodeRadius + 10)) {
+                    return node;
+                }
+            }
+            return null;
+        }
+
+        function getNodeById(id) {
+            return nodes.find(n => n.id === id);
+        }
+
+        // Dibujado (Render Loop)
+        function draw() {
+            // Limpiar canvas con un ligero efecto de traza (opcional, aquí sólido para limpieza)
+            ctx.clearRect(0, 0, width, height);
+
+            // Dibujar enlaces consolidados
+            ctx.lineCap = 'round';
+            links.forEach(link => {
+                const nodeA = getNodeById(link.from);
+                const nodeB = getNodeById(link.to);
+                
+                if (nodeA && nodeB) {
+                    ctx.beginPath();
+                    ctx.moveTo(nodeA.x, nodeA.y);
+                    ctx.lineTo(nodeB.x, nodeB.y);
+                    
+                    ctx.strokeStyle = STYLE.linkColor;
+                    ctx.lineWidth = STYLE.linkWidth;
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = STYLE.linkGlowColor;
+                    
+                    ctx.stroke();
+                    ctx.shadowBlur = 0; // Reset
+                }
+            });
+
+            // Dibujar enlace temporal si se está conectando
+            if (isConnecting && connectingNode) {
+                ctx.beginPath();
+                ctx.moveTo(connectingNode.x, connectingNode.y);
+                ctx.lineTo(mousePos.x, mousePos.y);
+                ctx.strokeStyle = STYLE.tempLinkColor;
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]);
+                ctx.stroke();
+                ctx.setLineDash([]); // Reset
+            }
+
+            // Dibujar Nodos
+            nodes.forEach(node => {
+                const isSelected = (selectedNode && selectedNode.id === node.id);
+                
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, STYLE.nodeRadius, 0, Math.PI * 2);
+                
+                // Color base
+                ctx.fillStyle = isSelected ? STYLE.selectedColor : STYLE.nodeColor;
+                
+                // Brillo (Sombra)
+                ctx.shadowBlur = isSelected ? 25 : 15;
+                ctx.shadowColor = isSelected ? STYLE.selectedGlow : STYLE.nodeGlow;
+                
+                ctx.fill();
+                
+                // Borde interior blanco/claro para dar volumen
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+                ctx.stroke();
+                
+                // Reset sombra para no afectar otras cosas
+                ctx.shadowBlur = 0;
+                
+                // Dibujar núcleo central
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, STYLE.nodeRadius * 0.4, 0, Math.PI * 2);
+                ctx.fillStyle = '#ffffff';
+                ctx.fill();
+                
+                // Dibujar texto del nodo si existe
+                if (node.text) {
+                    ctx.font = "bold 13px 'Inter', sans-serif";
+                    ctx.textAlign = "center";
+                    ctx.textBaseline = "middle";
+                    
+                    // Contorno negro para destacar sobre las líneas y fondo
+                    ctx.lineJoin = "round";
+                    ctx.lineWidth = 3;
+                    ctx.strokeStyle = "#050505";
+                    ctx.strokeText(node.text, node.x, node.y + 25);
+                    
+                    // Texto blanco
+                    ctx.fillStyle = "#ffffff";
+                    ctx.fillText(node.text, node.x, node.y + 25);
+                }
+            });
+        }
+
+        // Interacción del ratón
+        canvas.addEventListener('mousedown', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            const clickedNode = getNodeAt(x, y);
+
+            if (e.shiftKey) {
+                // Modo conectar
+                if (clickedNode) {
+                    isConnecting = true;
+                    connectingNode = clickedNode;
+                    mousePos = { x, y };
+                }
+            } else {
+                // Modo selección / mover
+                if (clickedNode) {
+                    selectedNode = clickedNode;
+                    draggingNode = clickedNode;
+                    // Opcional: guardar estado al INICIAR el drag si queremos deshacer movimientos exactos
+                    // saveState(); 
+                } else {
+                    selectedNode = null;
+                }
+            }
+            draw();
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            mousePos.x = e.clientX - rect.left;
+            mousePos.y = e.clientY - rect.top;
+
+            if (draggingNode && !isConnecting) {
+                draggingNode.x = mousePos.x;
+                draggingNode.y = mousePos.y;
+                if (editingNode === draggingNode) {
+                    updateInputPosition(); // Mantener el input sobre el nodo mientras se arrastra
+                }
+                draw();
+            } else if (isConnecting) {
+                draw();
+            }
+        });
+
+        canvas.addEventListener('mouseup', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            if (isConnecting && connectingNode) {
+                const targetNode = getNodeAt(x, y);
+                if (targetNode && targetNode.id !== connectingNode.id) {
+                    addLink(connectingNode.id, targetNode.id);
+                }
+            } else if (draggingNode) {
+                // Si queremos que cada movimiento se guarde en el historial
+                // Deberíamos refinar esto para no guardar si no se movió apenas.
+                // Para este ejemplo, lo omitimos para no saturar el historial con micro-movimientos
+            }
+
+            draggingNode = null;
+            isConnecting = false;
+            connectingNode = null;
+            draw();
+        });
+
+        canvas.addEventListener('dblclick', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            const clickedNode = getNodeAt(x, y);
+            if (clickedNode) {
+                // Editar texto del nodo existente
+                showInputForNode(clickedNode);
+            } else {
+                // Añadir y editar un nodo nuevo
+                const newNode = addNode(x, y);
+                showInputForNode(newNode);
+            }
+        });
+
+        // Funciones para el Input flotante
+        function showInputForNode(node) {
+            editingNode = node;
+            nodeInput.style.display = 'block';
+            nodeInput.value = node.text || "";
+            updateInputPosition();
+            setTimeout(() => nodeInput.focus(), 10);
+        }
+
+        function updateInputPosition() {
+            if (editingNode) {
+                nodeInput.style.left = editingNode.x + 'px';
+                nodeInput.style.top = (editingNode.y + 25) + 'px';
+            }
+        }
+
+        nodeInput.addEventListener('input', (e) => {
+            if (editingNode) {
+                editingNode.text = e.target.value;
+                draw();
+            }
+        });
+
+        nodeInput.addEventListener('blur', () => {
+            if (editingNode) saveState();
+            nodeInput.style.display = 'none';
+            editingNode = null;
+        });
+
+        nodeInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                nodeInput.blur();
+            }
+        });
+
+        // Controles de Teclado
+        window.addEventListener('keydown', (e) => {
+            // Evitar conflictos si se está escribiendo en el input flotante
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+            // Ctrl + Z
+            if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+                e.preventDefault();
+                undo();
+                return;
+            }
+            
+            // Lógica de escritura directa sobre un nodo seleccionado
+            if (selectedNode) {
+                if (e.key === 'Delete') {
+                    e.preventDefault();
+                    deleteSelected();
+                    return;
+                }
+                
+                if (e.key === 'Backspace') {
+                    e.preventDefault();
+                    if (selectedNode.text && selectedNode.text.length > 0) {
+                        saveState();
+                        selectedNode.text = selectedNode.text.slice(0, -1);
+                        draw();
+                    }
+                    return;
+                }
+                
+                // Escribir texto directo (caracteres normales)
+                if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                    saveState();
+                    selectedNode.text = (selectedNode.text || "") + e.key;
+                    draw();
+                    return; 
+                }
+            }
+
+            // Añadir nodo en centro (Tecla A) (solo si no estamos escribiendo dentro de un nodo)
+            if (e.key.toLowerCase() === 'a' && !selectedNode) {
+                addNode(width / 2, height / 2);
+            }
+        });
+
+        // Botones UI
+        document.getElementById('btnAdd').addEventListener('click', () => {
+            addNode(width / 2 + (Math.random()*40-20), height / 2 + (Math.random()*40-20));
+        });
+
+        document.getElementById('btnUndo').addEventListener('click', undo);
+
+        document.getElementById('btnClear').addEventListener('click', () => {
+            if (nodes.length > 0) {
+                saveState();
+                nodes = [];
+                links = [];
+                selectedNode = null;
+                draw();
+            }
+        });
+
+        // Inicialización
+        updateUndoButton();
+        
+        // Añadir algunos nodos iniciales de ejemplo para mostrar visualmente
+        setTimeout(() => {
+            const n1 = addNode(width/2 - 100, height/2 - 50);
+            n1.text = "Idea Principal";
+            const n2 = addNode(width/2 + 100, height/2 - 50);
+            n2.text = "Concepto A";
+            const n3 = addNode(width/2, height/2 + 100);
+            n3.text = "Concepto B";
+            
+            // Forzar los IDs temporalmente para crear conexiones sin error de timing
+            links.push({from: nodes[0].id, to: nodes[1].id});
+            links.push({from: nodes[1].id, to: nodes[2].id});
+            links.push({from: nodes[2].id, to: nodes[0].id});
+            
+            // Limpiar historial inicial para no deshacer la pantalla de bienvenida directamente
+            history = [];
+            updateUndoButton();
+            draw();
+        }, 100);
+
+    </script>
+</body>
+</html>
