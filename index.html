@@ -9,7 +9,7 @@
   canvas { display: block; position: fixed; inset: 0; outline: none; }
   #menu {
     position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
-    display: flex; gap: 8px; padding: 8px 12px; z-index: 10;
+    display: flex; flex-wrap: wrap; justify-content: center; max-width: 94vw; box-sizing: border-box; gap: 8px; padding: 8px 12px; z-index: 10;
     background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.15);
     border-radius: 14px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
   }
@@ -34,12 +34,16 @@
 <div id="menu">
   <button id="btnUndo" title="Ctrl + Z">Deshacer</button>
   <button id="btnStyle" title="Cambiar el diseño de los nodos">Estilo: Neurona</button>
+  <button id="btnPres" title="Recorrer el mapa con las flechas">Presentar</button>
+  <button id="btnSave" title="Descargar el mapa como archivo .json">Guardar JSON</button>
+  <button id="btnLoad" title="Abrir un mapa guardado">Abrir JSON</button>
+  <input id="fileIn" type="file" accept=".json,application/json" hidden>
   <button id="btnPng">Exportar PNG</button>
   <button id="btnPdf">Exportar PDF</button>
 </div>
 <canvas id="c" tabindex="0"></canvas>
 <input id="editor" type="text" aria-label="Texto del nodo">
-<div id="hint">Doble clic: crear o editar · Tab: nodo hijo · C: conectar · Supr: borrar · Ctrl+Z: deshacer</div>
+<div id="hint">Arrastrar fondo: mover cámara · Esc: centrar cámara · Doble clic: crear/editar · C: conectar · Supr: borrar</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
@@ -52,6 +56,8 @@
   let nodes = [], links = [], nextId = 1, colorIdx = 0;
   let selNode = null, selLink = null, drag = null, linking = null, mouse = { x: 0, y: 0 };
   let editing = null, editInfo = null, conn = null, history = [];
+  let pres = false, order = [], idx = 0, cam = { x: 0, y: 0, k: 1 }, camT = { x: 0, y: 0, k: 1 }, animId = 0;
+  let pan = { x: 0, y: 0 }, panning = null; // Variables para el desplazamiento
 
   /* ---------- Historial ---------- */
   const snapshot = () => JSON.stringify({ nodes, links, nextId, colorIdx });
@@ -84,7 +90,10 @@
   };
   const nodeAt = (x, y) => { for (let i = nodes.length - 1; i >= 0; i--) if (hit(nodes[i], x, y)) return nodes[i]; return null; };
   const linkAt = (x, y) => links.slice().reverse().find(l => { const a = byId(l.a), b = byId(l.b); return a && b && distanceToSegment(x, y, a.x, a.y, b.x, b.y) <= TOL; });
-  const pos = e => { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+  
+  // Posición ajustada por el desplazamiento actual
+  const pos = e => { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left - pan.x, y: e.clientY - r.top - pan.y }; };
+  
   const connected = (a, b) => links.some(l => (l.a === a.id && l.b === b.id) || (l.a === b.id && l.b === a.id));
   const newNode = (x, y) => { const n = { id: nextId++, x, y, text: 'Idea', color: COLORS[colorIdx++ % COLORS.length] }; nodes.push(n); return n; };
 
@@ -104,13 +113,27 @@
   }
   function render(g, w, h, preview) {
     g.fillStyle = '#05060a'; g.fillRect(0, 0, w, h);
+    const cur = pres && !preview ? order[idx] : null;
+    const isNb = (n, m) => links.some(l => (l.a === n.id && l.b === m.id) || (l.b === n.id && l.a === m.id));
+    const na = n => !cur ? 1 : n === cur ? 1 : isNb(cur, n) ? 0.6 : 0.15;
+    g.save();
+    
+    // Aplicar desplazamiento de cámara o arrastre
+    if (cur) { 
+      g.translate(w / 2, h / 2); g.scale(cam.k, cam.k); g.translate(-cam.x, -cam.y); 
+    } else {
+      g.translate(pan.x, pan.y);
+    }
+
     for (const l of links) {
       const a = byId(l.a), b = byId(l.b); if (!a || !b) continue;
       const sel = !preview && l === selLink;
+      g.globalAlpha = !cur ? 1 : (l.a === cur.id || l.b === cur.id) ? 0.9 : 0.12;
       g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y);
       g.strokeStyle = sel ? '#ff2a2a' : 'rgba(140,200,255,.55)'; g.lineWidth = sel ? 4 : 1.6;
       g.shadowColor = sel ? '#ff2a2a' : '#4aa8ff'; g.shadowBlur = sel ? 12 : 5; g.stroke(); g.shadowBlur = 0;
     }
+    g.globalAlpha = 1;
     const guide = conn && conn.target !== conn.from ? [conn.from, conn.target] : linking ? [linking, mouse] : null;
     if (!preview && guide) {
       g.beginPath(); g.moveTo(guide[0].x, guide[0].y); g.lineTo(guide[1].x, guide[1].y);
@@ -119,7 +142,8 @@
     g.font = '600 13px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
     for (const n of nodes) {
       const sel = !preview && n === selNode, tgt = !preview && conn && n === conn.target && n !== conn.from;
-      const hi = sel || tgt, z = sizeOf(n);
+      const hi = sel || tgt || (cur && n === cur), z = sizeOf(n);
+      g.globalAlpha = na(n);
       g.beginPath();
       if (style === 2) rr(g, n.x - z.w / 2, n.y - z.h / 2, z.w, z.h, z.h / 2); else g.arc(n.x, n.y, R, 0, Math.PI * 2);
       if (style === 0) {
@@ -129,14 +153,18 @@
       else g.fillStyle = '#0b0e18';
       g.shadowColor = hi ? '#fff' : n.color; g.shadowBlur = hi ? 28 : style === 3 ? 10 : 16; g.fill(); g.shadowBlur = 0;
       g.lineWidth = hi ? 3 : style === 1 ? 2.5 : 1.5; g.strokeStyle = hi ? '#fff' : n.color; g.stroke();
+      g.globalAlpha = 1;
     }
-    for (const n of nodes) { // texto al final, con contorno negro
+    for (const n of nodes) {
       const lines = style === 2 ? [n.text || ''] : wrapText(n.text, R * 1.7).slice(0, 3), lh = 15, y0 = n.y - ((lines.length - 1) * lh) / 2;
+      g.globalAlpha = na(n);
       lines.forEach((ln, i) => {
         g.lineJoin = 'round'; g.lineWidth = 4; g.strokeStyle = '#000'; g.strokeText(ln, n.x, y0 + i * lh);
         g.fillStyle = '#fff'; g.fillText(ln, n.x, y0 + i * lh);
       });
+      g.globalAlpha = 1;
     }
+    g.restore();
   }
   const draw = () => render(ctx, cv.clientWidth, cv.clientHeight, false);
   function resize() {
@@ -150,7 +178,7 @@
   /* ---------- Edición de texto ---------- */
   function startEdit(n, initial, isNew) {
     editing = n; editInfo = { snap: snapshot(), orig: n.text, isNew };
-    Object.assign(editor.style, { display: 'block', left: n.x - 75 + 'px', top: n.y - 15 + 'px' });
+    Object.assign(editor.style, { display: 'block', left: (n.x + pan.x) - 75 + 'px', top: (n.y + pan.y) - 15 + 'px' });
     editor.value = initial !== undefined ? initial : n.text;
     if (initial !== undefined) n.text = initial;
     draw(); editor.focus();
@@ -174,27 +202,44 @@
   /* ---------- Ratón ---------- */
   cv.addEventListener('contextmenu', e => {
     e.preventDefault();
+    if (pres) return;
     const p = pos(e), l = linkAt(p.x, p.y);
     if (l && !nodeAt(p.x, p.y)) { pushHistory(); links = links.filter(x => x !== l); if (selLink === l) selLink = null; draw(); }
   });
   cv.addEventListener('mousedown', e => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || pres) return;
     const p = pos(e); mouse = p; conn = null; hint.textContent = HINT; cv.focus();
     const n = nodeAt(p.x, p.y);
     if (n) {
       selNode = n; selLink = null;
       drag = { n, dx: p.x - n.x, dy: p.y - n.y, snap: snapshot(), moved: false, link: e.shiftKey };
       if (e.shiftKey) linking = n;
-    } else { selNode = null; selLink = linkAt(p.x, p.y) || null; }
+    } else { 
+      selNode = null; 
+      selLink = linkAt(p.x, p.y) || null; 
+      // Si no se tocó nada, iniciamos el arrastre del entorno (panning)
+      if (!selLink) {
+        panning = { x: e.clientX, y: e.clientY };
+        cv.style.cursor = 'grabbing';
+      }
+    }
     draw();
   });
   addEventListener('mousemove', e => {
+    if (panning) {
+      pan.x += e.clientX - panning.x;
+      pan.y += e.clientY - panning.y;
+      panning = { x: e.clientX, y: e.clientY };
+      draw();
+      return;
+    }
     mouse = pos(e);
     if (!drag) return;
     if (!drag.link) { drag.n.x = mouse.x - drag.dx; drag.n.y = mouse.y - drag.dy; drag.moved = true; }
     draw();
   });
   addEventListener('mouseup', e => {
+    if (panning) { panning = null; cv.style.cursor = ''; return; }
     if (!drag) return;
     if (drag.link) {
       const t = nodeAt(mouse.x, mouse.y);
@@ -203,6 +248,7 @@
     drag = linking = null; draw();
   });
   cv.addEventListener('dblclick', e => {
+    if (pres) return;
     const p = pos(e), n = nodeAt(p.x, p.y);
     if (n) { selNode = n; startEdit(n); return; }
     if (linkAt(p.x, p.y)) return;
@@ -216,7 +262,7 @@
       if (n === cur) continue;
       const vx = n.x - cur.x, vy = n.y - cur.y, along = vx * dx + vy * dy;
       if (along <= 0) continue;
-      const score = Math.hypot(vx, vy) + Math.abs(vx * dy - vy * dx) * 1.5; // penaliza desviarse del eje
+      const score = Math.hypot(vx, vy) + Math.abs(vx * dy - vy * dx) * 1.5;
       if (score < bestScore) { bestScore = score; best = n; }
     }
     return best;
@@ -226,9 +272,15 @@
   addEventListener('keydown', e => {
     if (editing) return;
     const k = e.key;
+    if (pres) {
+      const next = ['ArrowRight', 'ArrowDown', 'PageDown', ' '], prev = ['ArrowLeft', 'ArrowUp', 'PageUp'];
+      if (next.includes(k)) goTo(idx + 1); else if (prev.includes(k)) goTo(idx - 1);
+      else if (k === 'Home') goTo(0); else if (k === 'End') goTo(order.length - 1);
+      else if (k === 'Escape') { exitPres(); return; } else return;
+      e.preventDefault(); return;
+    }
     if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === 'z') { e.preventDefault(); undo(); return; }
 
-    // Modo conectar: flechas eligen destino, Enter confirma, Esc cancela
     if (conn) {
       e.preventDefault();
       const dir = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[k];
@@ -240,6 +292,7 @@
       return;
     }
 
+    if (k === 'Escape') { pan = { x: 0, y: 0 }; draw(); return; } // Botón pánico de centrado
     if (k === 'Delete' || k === 'Backspace') {
       e.preventDefault();
       if (selNode) { pushHistory(); const id = selNode.id; nodes = nodes.filter(n => n !== selNode); links = links.filter(l => l.a !== id && l.b !== id); selNode = null; }
@@ -251,7 +304,7 @@
       e.preventDefault(); conn = { from: selNode, target: selNode };
       hint.textContent = 'Conectar: flechas para elegir destino · Enter confirma · Esc cancela'; draw(); return;
     }
-    if (k === 'Tab') { // nodo hijo ya conectado
+    if (k === 'Tab') {
       e.preventDefault(); pushHistory();
       const kids = links.filter(l => l.a === selNode.id || l.b === selNode.id).length;
       const ang = -Math.PI / 2 + kids * 0.9;
@@ -262,6 +315,50 @@
     if (k === 'Enter' || k === 'F2') { e.preventDefault(); startEdit(selNode); return; }
     if (k.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); startEdit(selNode, k); }
   });
+
+  /* ---------- Presentación ---------- */
+  const menu = document.getElementById('menu');
+  function buildOrder(start) {
+    const seen = new Set(), out = [];
+    const visit = n => {
+      seen.add(n.id); out.push(n);
+      links.filter(l => l.a === n.id || l.b === n.id)
+        .map(l => byId(l.a === n.id ? l.b : l.a)).filter(Boolean).sort((p, q) => p.id - q.id)
+        .forEach(m => { if (!seen.has(m.id)) visit(m); });
+    };
+    visit(start);
+    nodes.forEach(n => { if (!seen.has(n.id)) visit(n); });
+    return out;
+  }
+  function tick() {
+    cam.x += (camT.x - cam.x) * 0.14; cam.y += (camT.y - cam.y) * 0.14; cam.k += (camT.k - cam.k) * 0.14;
+    draw();
+    if (Math.abs(camT.x - cam.x) + Math.abs(camT.y - cam.y) + Math.abs(camT.k - cam.k) * 100 > 0.5) animId = requestAnimationFrame(tick);
+    else { Object.assign(cam, camT); animId = 0; draw(); }
+  }
+  function goTo(i) {
+    idx = Math.max(0, Math.min(order.length - 1, i));
+    const n = order[idx]; camT = { x: n.x, y: n.y, k: 1.8 };
+    hint.textContent = (idx + 1) + ' / ' + order.length + ' · flechas para navegar · Esc para salir';
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) { Object.assign(cam, camT); draw(); }
+    else if (!animId) animId = requestAnimationFrame(tick);
+  }
+  function startPres() {
+    if (!nodes.length) { alert('Crea al menos un nodo para presentar.'); return; }
+    endEdit(false); conn = null;
+    order = buildOrder(selNode || nodes[0]); const n = order[0];
+    cam = { x: n.x, y: n.y, k: 1 }; pres = true; menu.style.display = 'none';
+    try { document.documentElement.requestFullscreen && document.documentElement.requestFullscreen().catch(() => {}); } catch (_) {}
+    goTo(0); cv.focus();
+  }
+  function exitPres() {
+    if (!pres) return;
+    selNode = order[idx] || null; pres = false; menu.style.display = 'flex'; hint.textContent = HINT;
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    draw(); cv.focus();
+  }
+  document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) exitPres(); });
+  document.getElementById('btnPres').onclick = startPres;
 
   /* ---------- Exportación ---------- */
   function exportCanvas() {
@@ -280,6 +377,38 @@
     pdf.save('mapa-mental.pdf');
   };
   document.getElementById('btnUndo').onclick = undo;
+
+  /* ---------- Guardar y abrir JSON ---------- */
+  document.getElementById('btnSave').onclick = () => {
+    const data = { app: 'mapa-mental-neuronal', version: 1, style, nextId, colorIdx, nodes, links };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+    download(url, 'mapa-mental.json'); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  const fileIn = document.getElementById('fileIn');
+  document.getElementById('btnLoad').onclick = () => { fileIn.value = ''; fileIn.click(); };
+  fileIn.onchange = () => {
+    const f = fileIn.files[0]; if (!f) return;
+    const r = new FileReader();
+    r.onload = () => {
+      try {
+        const d = JSON.parse(r.result);
+        if (!Array.isArray(d.nodes) || !Array.isArray(d.links)) throw new Error('formato');
+        const ns = d.nodes.filter(n => n && Number.isFinite(n.id) && Number.isFinite(n.x) && Number.isFinite(n.y))
+          .map(n => ({ id: n.id, x: n.x, y: n.y, text: String(n.text ?? ''), color: /^#[0-9a-f]{6}$/i.test(n.color) ? n.color : COLORS[0] }));
+        const ids = new Set(ns.map(n => n.id));
+        const ls = d.links.filter(l => l && ids.has(l.a) && ids.has(l.b) && l.a !== l.b).map(l => ({ a: l.a, b: l.b }));
+        pushHistory();
+        nodes = ns; links = ls; selNode = selLink = conn = null;
+        nextId = Math.max(Number.isFinite(d.nextId) ? d.nextId : 1, ...ids, 0) + (ids.size ? 1 : 0);
+        colorIdx = Number.isFinite(d.colorIdx) ? d.colorIdx : ns.length;
+        if (Number.isInteger(d.style) && d.style >= 0 && d.style < STYLES.length) { style = d.style; btnStyle.textContent = 'Estilo: ' + STYLES[style]; }
+        // Centrar mapa cargado
+        pan = { x: 0, y: 0 }; 
+        draw(); cv.focus();
+      } catch (_) { alert('No se pudo abrir el archivo: no parece un mapa guardado desde esta aplicación.'); }
+    };
+    r.readAsText(f);
+  };
   const btnStyle = document.getElementById('btnStyle');
   btnStyle.onclick = () => { style = (style + 1) % STYLES.length; btnStyle.textContent = 'Estilo: ' + STYLES[style]; draw(); cv.focus(); };
 
