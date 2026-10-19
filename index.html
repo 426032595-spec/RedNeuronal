@@ -2,102 +2,220 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Mapa mental neuronal</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Neural MindMap Cyberpunk 60FPS</title>
 <style>
-  html, body { margin: 0; height: 100%; background: #05060a; overflow: hidden; font-family: system-ui, sans-serif; }
-  canvas { display: block; position: fixed; inset: 0; outline: none; }
+  :root {
+    --bg-dark: #030611;
+    --neon-cyan: #00f3ff;
+    --neon-magenta: #ff007f;
+    --neon-purple: #a855f7;
+    --glass-bg: rgba(10, 15, 30, 0.65);
+    --glass-border: rgba(0, 243, 255, 0.2);
+    --glass-blur: blur(16px);
+  }
+
+  * { box-sizing: border-box; user-select: none; }
+  html, body { margin: 0; padding: 0; height: 100%; width: 100%; background: var(--bg-dark); overflow: hidden; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: #e2e8f0; }
+
+  canvas { display: block; position: fixed; inset: 0; outline: none; cursor: crosshair; }
+
+  /* Toolbar Glassmorphism */
   #menu {
-    position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
-    display: flex; flex-wrap: wrap; justify-content: center; max-width: 94vw; box-sizing: border-box; gap: 8px; padding: 8px 12px; z-index: 10;
-    background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.15);
-    border-radius: 14px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; padding: 10px 16px; z-index: 10;
+    background: var(--glass-bg); border: 1px solid var(--glass-border);
+    border-radius: 16px; backdrop-filter: var(--glass-blur); -webkit-backdrop-filter: var(--glass-blur);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5), inset 0 0 12px rgba(0, 243, 255, 0.08);
+    transition: all 0.3s ease;
   }
+
   #menu button {
-    background: rgba(255,255,255,.08); color: #e8f7ff; border: 1px solid rgba(255,255,255,.18);
-    border-radius: 9px; padding: 7px 13px; font-size: 13px; cursor: pointer;
+    background: rgba(255, 255, 255, 0.05); color: #f1f5f9; border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px; padding: 8px 14px; font-size: 13px; font-weight: 500; cursor: pointer;
+    display: flex; align-items: center; gap: 6px; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.2);
   }
-  #menu button:hover { background: rgba(0,229,255,.25); }
-  #menu button:focus-visible, #editor:focus-visible { outline: 2px solid #00e5ff; outline-offset: 2px; }
+
+  #menu button:hover {
+    background: rgba(0, 243, 255, 0.18); border-color: var(--neon-cyan);
+    color: #fff; transform: translateY(-1px); box-shadow: 0 0 12px rgba(0, 243, 255, 0.4);
+  }
+
+  #menu button:active { transform: translateY(1px); }
+
+  #menu button.active {
+    background: rgba(0, 243, 255, 0.35); border-color: var(--neon-cyan);
+    color: #fff; box-shadow: 0 0 16px rgba(0, 243, 255, 0.6);
+  }
+
+  /* Input de edición flotante */
   #editor {
-    position: fixed; display: none; z-index: 20; box-sizing: border-box; width: 150px; height: 30px;
-    background: rgba(0,0,0,.85); color: #fff; border: 1px solid #00e5ff; border-radius: 8px;
-    text-align: center; font: 600 14px system-ui, sans-serif; padding: 4px 6px;
+    position: fixed; display: none; z-index: 30; box-sizing: border-box; width: 170px; height: 36px;
+    background: rgba(5, 10, 25, 0.92); color: #fff; border: 2px solid var(--neon-cyan); border-radius: 10px;
+    text-align: center; font: 600 14px 'Segoe UI', system-ui, sans-serif; padding: 4px 10px;
+    box-shadow: 0 0 20px rgba(0, 243, 255, 0.5), inset 0 0 8px rgba(0, 243, 255, 0.2); outline: none;
+    backdrop-filter: blur(8px);
   }
+
+  /* Toasts & Tips */
+  #toast-container {
+    position: fixed; bottom: 20px; right: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 50; pointer-events: none;
+  }
+
+  .toast {
+    background: var(--glass-bg); border: 1px solid var(--neon-cyan); border-radius: 10px; padding: 10px 16px;
+    color: #fff; font-size: 13px; font-weight: 500; backdrop-filter: var(--glass-blur);
+    box-shadow: 0 4px 20px rgba(0, 243, 255, 0.25); animation: toastIn 0.3s ease forwards; opacity: 0; transform: translateY(10px);
+  }
+
+  @keyframes toastIn { to { opacity: 1; transform: translateY(0); } }
+
   #hint {
-    position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); width: max-content; max-width: 94%;
-    color: rgba(255,255,255,.5); font-size: 12px; text-align: center; pointer-events: none;
+    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); width: max-content; max-width: 92vw;
+    color: rgba(255, 255, 255, 0.6); font-size: 12px; font-weight: 500; text-align: center; pointer-events: none;
+    background: rgba(5, 10, 25, 0.6); padding: 6px 16px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.08);
+    backdrop-filter: blur(8px); letter-spacing: 0.3px;
+  }
+
+  kbd {
+    background: rgba(255,255,255,0.15); border-radius: 4px; padding: 1px 5px; font-size: 11px; border: 1px solid rgba(255,255,255,0.25); color: var(--neon-cyan);
   }
 </style>
 </head>
 <body>
+
 <div id="menu">
-  <button id="btnUndo" title="Ctrl + Z">Deshacer</button>
-  <button id="btnStyle" title="Cambiar el diseño de los nodos">Estilo: Neurona</button>
-  <button id="btnPres" title="Recorrer el mapa con las flechas">Presentar</button>
-  <button id="btnSave" title="Descargar el mapa como archivo .json">Guardar JSON</button>
-  <button id="btnLoad" title="Abrir un mapa guardado">Abrir JSON</button>
+  <button id="btnUndo" title="Deshacer última acción (Ctrl + Z)">↺ Deshacer</button>
+  <button id="btnConnect" title="Modo Conexión Manual (L)">⚡ Modo Enlace: OFF</button>
+  <button id="btnStyle" title="Cambiar aspecto cibernético de nodos">🎨 Estilo: Neurona</button>
+  <button id="btnPres" title="Presentación cinemática automática">🎬 Presentar</button>
+  <button id="btnSave" title="Guardar como JSON">💾 Guardar</button>
+  <button id="btnLoad" title="Cargar archivo JSON">📂 Abrir</button>
   <input id="fileIn" type="file" accept=".json,application/json" hidden>
-  <button id="btnPng">Exportar PNG</button>
-  <button id="btnPdf">Exportar PDF</button>
+  <button id="btnPng" title="Exportar imagen PNG en HD">🖼️ PNG</button>
+  <button id="btnPdf" title="Exportar documento PDF">📄 PDF</button>
 </div>
+
 <canvas id="c" tabindex="0"></canvas>
-<input id="editor" type="text" aria-label="Texto del nodo">
-<div id="hint">Arrastrar fondo: mover cámara · Esc: centrar cámara · Doble clic: crear/editar · C: conectar · Supr: borrar</div>
+<input id="editor" type="text" aria-label="Etiqueta del nodo">
+<div id="hint"><kbd>Shift+Clic</kbd> Multiselección · <kbd>C</kbd> Conectar selección · <kbd>L</kbd> Modo Enlace · <kbd>TAB</kbd> Ramificar · <kbd>Esc</kbd> Reset Cámara</div>
+<div id="toast-container"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
 (() => {
   const cv = document.getElementById('c'), ctx = cv.getContext('2d');
   const editor = document.getElementById('editor'), hint = document.getElementById('hint');
-  const R = 34, TOL = 6, HINT = hint.textContent;
-  const COLORS = ['#00e5ff', '#ff3df2', '#7cff4d', '#ffb300', '#8a6bff', '#ff5c7a'];
+  const btnConnect = document.getElementById('btnConnect'), btnStyle = document.getElementById('btnStyle');
+  const toastContainer = document.getElementById('toast-container');
+
+  const R = 36, TOL = 8, HINT_TEXT = hint.innerHTML;
+  const PALETTE = ['#00f3ff', '#ff007f', '#a855f7', '#00ff66', '#ffb700', '#ff4d6d'];
+  const STYLES = ['Neurona', 'Anillo', 'Píldora', 'Sólido'];
 
   let nodes = [], links = [], nextId = 1, colorIdx = 0;
-  let selNode = null, selLink = null, drag = null, linking = null, mouse = { x: 0, y: 0 };
-  let editing = null, editInfo = null, conn = null, history = [];
-  let pres = false, order = [], idx = 0, cam = { x: 0, y: 0, k: 1 }, camT = { x: 0, y: 0, k: 1 }, animId = 0;
-  let pan = { x: 0, y: 0 }, panning = null; // Variables para el desplazamiento
+  let selNode = null, selectedNodes = [], selLink = null, drag = null, mouse = { x: 0, y: 0 };
+  let editing = null, editInfo = null, history = [];
+  let connectMode = false, connectSource = null;
+  let style = 0;
 
-  /* ---------- Historial ---------- */
+  // Cámara & Navegación
+  let pan = { x: 0, y: 0 }, panning = null;
+  let presMode = false, order = [], presIdx = 0, cam = { x: 0, y: 0, k: 1 }, camT = { x: 0, y: 0, k: 1 };
+
+  // Partículas de Fondo & Sinapsis
+  let bgParticles = [];
+  let impulses = []; // Partículas de energía sináptica viajando por las conexiones
+
+  /* ---------- Toast UI ---------- */
+  function toast(msg) {
+    const el = document.createElement('div');
+    el.className = 'toast';
+    el.textContent = msg;
+    toastContainer.appendChild(el);
+    setTimeout(() => {
+      el.style.opacity = '0';
+      el.style.transform = 'translateY(10px)';
+      el.style.transition = 'all 0.3s ease';
+      setTimeout(() => el.remove(), 300);
+    }, 2500);
+  }
+
+  /* ---------- Inicialización de Partículas de Fondo ---------- */
+  function initBg() {
+    bgParticles = [];
+    const count = Math.floor((innerWidth * innerHeight) / 12000);
+    for (let i = 0; i < count; i++) {
+      bgParticles.push({
+        x: Math.random() * innerWidth,
+        y: Math.random() * innerHeight,
+        r: Math.random() * 1.5 + 0.5,
+        vx: (Math.random() - 0.5) * 0.25,
+        vy: (Math.random() - 0.5) * 0.25,
+        alpha: Math.random() * 0.5 + 0.1
+      });
+    }
+  }
+
+  /* ---------- Historial (Deshacer) ---------- */
   const snapshot = () => JSON.stringify({ nodes, links, nextId, colorIdx });
-  const pushHistory = s => { history.push(s || snapshot()); if (history.length > 200) history.shift(); };
+  const pushHistory = s => { history.push(s || snapshot()); if (history.length > 100) history.shift(); };
   function undo() {
     if (editing || !history.length) return;
     const s = JSON.parse(history.pop());
     nodes = s.nodes; links = s.links; nextId = s.nextId; colorIdx = s.colorIdx;
-    selNode = selLink = conn = null; draw();
+    selNode = selLink = connectSource = null; selectedNodes = []; draw();
+    toast("Acción deshecha");
   }
 
-  /* ---------- Geometría ---------- */
-  function distanceToSegment(px, py, ax, ay, bx, by) {
+  /* ---------- Geometría y Auxiliares ---------- */
+  function distToSeg(px, py, ax, ay, bx, by) {
     const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
     let t = len2 === 0 ? 0 : ((px - ax) * dx + (py - ay) * dy) / len2;
     t = Math.max(0, Math.min(1, t));
     return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
   }
   const byId = id => nodes.find(n => n.id === id);
-  const STYLES = ['Neurona', 'Anillo', 'Píldora', 'Sólido'];
-  let style = 0;
   const sizeOf = n => {
     if (style !== 2) return { w: 2 * R, h: 2 * R };
     ctx.font = '600 13px system-ui, sans-serif';
-    return { w: Math.max(76, ctx.measureText(n.text || ' ').width + 32), h: 38 };
+    return { w: Math.max(84, ctx.measureText(n.text || ' ').width + 36), h: 40 };
   };
   const hit = (n, x, y) => {
     if (style !== 2) return Math.hypot(x - n.x, y - n.y) <= R;
     const z = sizeOf(n); return Math.abs(x - n.x) <= z.w / 2 && Math.abs(y - n.y) <= z.h / 2;
   };
   const nodeAt = (x, y) => { for (let i = nodes.length - 1; i >= 0; i--) if (hit(nodes[i], x, y)) return nodes[i]; return null; };
-  const linkAt = (x, y) => links.slice().reverse().find(l => { const a = byId(l.a), b = byId(l.b); return a && b && distanceToSegment(x, y, a.x, a.y, b.x, b.y) <= TOL; });
-  
-  // Posición ajustada por el desplazamiento actual
+  const linkAt = (x, y) => links.slice().reverse().find(l => { const a = byId(l.a), b = byId(l.b); return a && b && distToSeg(x, y, a.x, a.y, b.x, b.y) <= TOL; });
   const pos = e => { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left - pan.x, y: e.clientY - r.top - pan.y }; };
-  
   const connected = (a, b) => links.some(l => (l.a === a.id && l.b === b.id) || (l.a === b.id && l.b === a.id));
-  const newNode = (x, y) => { const n = { id: nextId++, x, y, text: 'Idea', color: COLORS[colorIdx++ % COLORS.length] }; nodes.push(n); return n; };
+  const newNode = (x, y) => {
+    const n = { id: nextId++, x, y, text: 'Neurona', color: PALETTE[colorIdx++ % PALETTE.length], phase: Math.random() * Math.PI * 2 };
+    nodes.push(n);
+    return n;
+  };
 
-  /* ---------- Dibujo ---------- */
+  /* ---------- Impulsos Sinápticos ---------- */
+  function updateImpulses() {
+    // Generar nuevos impulsos aleatoriamente
+    if (links.length > 0 && Math.random() < 0.08) {
+      const l = links[Math.floor(Math.random() * links.length)];
+      impulses.push({
+        link: l,
+        t: 0,
+        speed: 0.008 + Math.random() * 0.012,
+        color: byId(l.a)?.color || '#00f3ff'
+      });
+    }
+    // Actualizar existentes
+    for (let i = impulses.length - 1; i >= 0; i--) {
+      impulses[i].t += impulses[i].speed;
+      if (impulses[i].t >= 1) impulses.splice(i, 1);
+    }
+  }
+
+  /* ---------- Renderizado Principal (60 FPS) ---------- */
   function wrapText(text, maxW) {
     const lines = []; let cur = '';
     for (const w of (text || '').split(/\s+/).filter(Boolean)) {
@@ -107,91 +225,198 @@
     if (cur) lines.push(cur);
     return lines;
   }
+
   function rr(g, x, y, w, h, r) {
-    g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+    g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
     g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
   }
-  function render(g, w, h, preview) {
-    g.fillStyle = '#05060a'; g.fillRect(0, 0, w, h);
-    const cur = pres && !preview ? order[idx] : null;
-    const isNb = (n, m) => links.some(l => (l.a === n.id && l.b === m.id) || (l.b === n.id && l.a === m.id));
-    const na = n => !cur ? 1 : n === cur ? 1 : isNb(cur, n) ? 0.6 : 0.15;
-    g.save();
+
+  function render(time) {
+    const w = cv.clientWidth, h = cv.clientHeight;
+    ctx.clearRect(0, 0, w, h);
+
+    // 1. Fondo Cyberpunk con Cuadrícula y Polvo Estelar
+    ctx.fillStyle = '#030611'; ctx.fillRect(0, 0, w, h);
     
-    // Aplicar desplazamiento de cámara o arrastre
-    if (cur) { 
-      g.translate(w / 2, h / 2); g.scale(cam.k, cam.k); g.translate(-cam.x, -cam.y); 
+    // Cuadrícula sutil
+    ctx.strokeStyle = 'rgba(0, 243, 255, 0.03)';
+    ctx.lineWidth = 1;
+    const gridSpacing = 40;
+    const offX = pan.x % gridSpacing, offY = pan.y % gridSpacing;
+    ctx.beginPath();
+    for (let x = offX; x < w; x += gridSpacing) { ctx.moveTo(x, 0); ctx.lineTo(x, h); }
+    for (let y = offY; y < h; y += gridSpacing) { ctx.moveTo(0, y); ctx.lineTo(w, y); }
+    ctx.stroke();
+
+    // Partículas flotantes
+    ctx.fillStyle = '#00f3ff';
+    bgParticles.forEach(p => {
+      p.x += p.vx; p.y += p.vy;
+      if (p.x < 0) p.x = w; if (p.x > w) p.x = 0;
+      if (p.y < 0) p.y = h; if (p.y > h) p.y = 0;
+      ctx.globalAlpha = p.alpha * (0.6 + 0.4 * Math.sin(time * 0.002 + p.x));
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+
+    // Transformación de Cámara
+    ctx.save();
+    const cur = presMode ? order[presIdx] : null;
+    if (cur) {
+      ctx.translate(w / 2, h / 2); ctx.scale(cam.k, cam.k); ctx.translate(-cam.x, -cam.y);
     } else {
-      g.translate(pan.x, pan.y);
+      ctx.translate(pan.x, pan.y);
     }
 
+    // 2. Renderizar Conexiones (Links)
     for (const l of links) {
       const a = byId(l.a), b = byId(l.b); if (!a || !b) continue;
-      const sel = !preview && l === selLink;
-      g.globalAlpha = !cur ? 1 : (l.a === cur.id || l.b === cur.id) ? 0.9 : 0.12;
-      g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y);
-      g.strokeStyle = sel ? '#ff2a2a' : 'rgba(140,200,255,.55)'; g.lineWidth = sel ? 4 : 1.6;
-      g.shadowColor = sel ? '#ff2a2a' : '#4aa8ff'; g.shadowBlur = sel ? 12 : 5; g.stroke(); g.shadowBlur = 0;
+      const sel = l === selLink;
+      
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+      ctx.strokeStyle = sel ? '#ff007f' : 'rgba(0, 243, 255, 0.25)';
+      ctx.lineWidth = sel ? 3 : 1.5;
+      if (sel) { ctx.shadowColor = '#ff007f'; ctx.shadowBlur = 12; }
+      ctx.stroke(); ctx.shadowBlur = 0;
     }
-    g.globalAlpha = 1;
-    const guide = conn && conn.target !== conn.from ? [conn.from, conn.target] : linking ? [linking, mouse] : null;
-    if (!preview && guide) {
-      g.beginPath(); g.moveTo(guide[0].x, guide[0].y); g.lineTo(guide[1].x, guide[1].y);
-      g.setLineDash([6, 6]); g.strokeStyle = conn ? '#fff' : 'rgba(255,255,255,.5)'; g.lineWidth = 2; g.stroke(); g.setLineDash([]);
+
+    // 3. Renderizar Impulsos Sinápticos Animados
+    updateImpulses();
+    impulses.forEach(imp => {
+      const a = byId(imp.link.a), b = byId(imp.link.b);
+      if (!a || !b) return;
+      const ix = a.x + (b.x - a.x) * imp.t;
+      const iy = a.y + (b.y - a.y) * imp.t;
+
+      ctx.beginPath();
+      ctx.arc(ix, iy, 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = imp.color;
+      ctx.shadowColor = imp.color;
+      ctx.shadowBlur = 10;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    });
+
+    // Guía del modo enlace manual
+    if (connectMode && connectSource) {
+      ctx.beginPath(); ctx.moveTo(connectSource.x, connectSource.y); ctx.lineTo(mouse.x, mouse.y);
+      ctx.setLineDash([6, 6]);
+      ctx.lineDashOffset = -time * 0.03;
+      ctx.strokeStyle = '#00f3ff'; ctx.lineWidth = 2; ctx.stroke();
+      ctx.setLineDash([]);
     }
-    g.font = '600 13px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+
+    // 4. Renderizar Nodos
+    ctx.font = '600 13px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const isNb = (n, m) => links.some(l => (l.a === n.id && l.b === m.id) || (l.b === n.id && l.a === m.id));
+    const opacityOf = n => !cur ? 1 : n === cur ? 1 : isNb(cur, n) ? 0.7 : 0.15;
+
     for (const n of nodes) {
-      const sel = !preview && n === selNode, tgt = !preview && conn && n === conn.target && n !== conn.from;
-      const hi = sel || tgt || (cur && n === cur), z = sizeOf(n);
-      g.globalAlpha = na(n);
-      g.beginPath();
-      if (style === 2) rr(g, n.x - z.w / 2, n.y - z.h / 2, z.w, z.h, z.h / 2); else g.arc(n.x, n.y, R, 0, Math.PI * 2);
-      if (style === 0) {
-        const grad = g.createRadialGradient(n.x, n.y, 4, n.x, n.y, R);
-        grad.addColorStop(0, n.color + 'cc'); grad.addColorStop(1, n.color + '22'); g.fillStyle = grad;
-      } else if (style === 3) g.fillStyle = n.color + 'dd';
-      else g.fillStyle = '#0b0e18';
-      g.shadowColor = hi ? '#fff' : n.color; g.shadowBlur = hi ? 28 : style === 3 ? 10 : 16; g.fill(); g.shadowBlur = 0;
-      g.lineWidth = hi ? 3 : style === 1 ? 2.5 : 1.5; g.strokeStyle = hi ? '#fff' : n.color; g.stroke();
-      g.globalAlpha = 1;
-    }
-    for (const n of nodes) {
-      const lines = style === 2 ? [n.text || ''] : wrapText(n.text, R * 1.7).slice(0, 3), lh = 15, y0 = n.y - ((lines.length - 1) * lh) / 2;
-      g.globalAlpha = na(n);
+      const isSelected = selectedNodes.includes(n);
+      const isSource = connectSource === n;
+      const z = sizeOf(n);
+      const breathe = Math.sin(time * 0.003 + n.phase) * 3; // Resplandor palpitante
+      ctx.globalAlpha = opacityOf(n);
+
+      // Trazar Forma
+      ctx.beginPath();
+      if (style === 2) rr(ctx, n.x - z.w / 2, n.y - z.h / 2, z.w, z.h, z.h / 2);
+      else ctx.arc(n.x, n.y, R, 0, Math.PI * 2);
+
+      // Relleno según Estilo
+      if (style === 0) { // Neurona
+        const grad = ctx.createRadialGradient(n.x, n.y, 2, n.x, n.y, R + 4);
+        grad.addColorStop(0, n.color + 'ff');
+        grad.addColorStop(0.6, n.color + '44');
+        grad.addColorStop(1, '#050a19');
+        ctx.fillStyle = grad;
+      } else if (style === 3) { // Sólido
+        ctx.fillStyle = n.color + 'dd';
+      } else { // Anillo / Píldora
+        ctx.fillStyle = '#070d1f';
+      }
+
+      // Sombra Neón
+      ctx.shadowColor = n.color;
+      ctx.shadowBlur = (isSelected || isSource) ? 24 + breathe : 12 + breathe;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // Borde del Nodo
+      ctx.lineWidth = isSelected ? 2.5 : 1.5;
+      ctx.strokeStyle = isSelected ? '#ffffff' : n.color;
+      ctx.stroke();
+
+      // Animación de Selección (Marching Ants / Glowing Ring)
+      if (isSelected) {
+        ctx.save();
+        ctx.beginPath();
+        if (style === 2) rr(ctx, n.x - z.w / 2 - 5, n.y - z.h / 2 - 5, z.w + 10, z.h + 10, z.h / 2 + 3);
+        else ctx.arc(n.x, n.y, R + 6, 0, Math.PI * 2);
+
+        ctx.setLineDash([6, 6]);
+        ctx.lineDashOffset = -time * 0.02;
+        ctx.strokeStyle = '#00f3ff';
+        ctx.lineWidth = 1.8;
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Texto del Nodo
+      const lines = style === 2 ? [n.text || ''] : wrapText(n.text, R * 1.6).slice(0, 3);
+      const lh = 15, y0 = n.y - ((lines.length - 1) * lh) / 2;
+
       lines.forEach((ln, i) => {
-        g.lineJoin = 'round'; g.lineWidth = 4; g.strokeStyle = '#000'; g.strokeText(ln, n.x, y0 + i * lh);
-        g.fillStyle = '#fff'; g.fillText(ln, n.x, y0 + i * lh);
+        ctx.lineJoin = 'round'; ctx.lineWidth = 3;
+        ctx.strokeStyle = '#030611'; ctx.strokeText(ln, n.x, y0 + i * lh);
+        ctx.fillStyle = '#ffffff'; ctx.fillText(ln, n.x, y0 + i * lh);
       });
-      g.globalAlpha = 1;
+
+      ctx.globalAlpha = 1;
     }
-    g.restore();
+
+    ctx.restore();
   }
-  const draw = () => render(ctx, cv.clientWidth, cv.clientHeight, false);
+
+  /* Bucle Continuo a 60 FPS */
+  function loop(time) {
+    if (presMode) {
+      cam.x += (camT.x - cam.x) * 0.12;
+      cam.y += (camT.y - cam.y) * 0.12;
+      cam.k += (camT.k - cam.k) * 0.12;
+    }
+    render(time);
+    requestAnimationFrame(loop);
+  }
+
   function resize() {
     const d = window.devicePixelRatio || 1;
     cv.width = innerWidth * d; cv.height = innerHeight * d;
     cv.style.width = innerWidth + 'px'; cv.style.height = innerHeight + 'px';
-    ctx.setTransform(d, 0, 0, d, 0, 0); draw();
+    ctx.setTransform(d, 0, 0, d, 0, 0);
+    initBg();
   }
   addEventListener('resize', resize);
 
-  /* ---------- Edición de texto ---------- */
+  /* ---------- Edición de Texto ---------- */
   function startEdit(n, initial, isNew) {
     editing = n; editInfo = { snap: snapshot(), orig: n.text, isNew };
-    Object.assign(editor.style, { display: 'block', left: (n.x + pan.x) - 75 + 'px', top: (n.y + pan.y) - 15 + 'px' });
+    Object.assign(editor.style, { display: 'block', left: (n.x + pan.x) - 85 + 'px', top: (n.y + pan.y) - 18 + 'px' });
     editor.value = initial !== undefined ? initial : n.text;
     if (initial !== undefined) n.text = initial;
-    draw(); editor.focus();
+    editor.focus();
     if (initial === undefined) editor.select();
   }
+
   function endEdit(cancel) {
     if (!editing) return;
     const n = editing, info = editInfo; editing = editInfo = null; editor.style.display = 'none';
     if (cancel) n.text = info.orig;
     else if (!info.isNew && n.text !== info.orig) pushHistory(info.snap);
-    draw(); cv.focus();
+    cv.focus();
   }
-  editor.addEventListener('input', () => { if (editing) { editing.text = editor.value; draw(); } });
+
+  editor.addEventListener('input', () => { if (editing) editing.text = editor.value; });
   editor.addEventListener('keydown', e => {
     e.stopPropagation();
     if (e.key === 'Enter') endEdit(false);
@@ -199,125 +424,231 @@
   });
   editor.addEventListener('blur', () => endEdit(false));
 
-  /* ---------- Ratón ---------- */
+  /* ---------- Gestión de Ratón e Interacción ---------- */
   cv.addEventListener('contextmenu', e => {
     e.preventDefault();
-    if (pres) return;
+    if (presMode) return;
     const p = pos(e), l = linkAt(p.x, p.y);
-    if (l && !nodeAt(p.x, p.y)) { pushHistory(); links = links.filter(x => x !== l); if (selLink === l) selLink = null; draw(); }
+    if (l && !nodeAt(p.x, p.y)) {
+      pushHistory();
+      links = links.filter(x => x !== l);
+      if (selLink === l) selLink = null;
+      toast("Enlace eliminado");
+    }
   });
+
   cv.addEventListener('mousedown', e => {
-    if (e.button !== 0 || pres) return;
-    const p = pos(e); mouse = p; conn = null; hint.textContent = HINT; cv.focus();
+    if (e.button !== 0 || presMode) return;
+    const p = pos(e); mouse = p; cv.focus();
     const n = nodeAt(p.x, p.y);
+
+    // Modo Conexión Manual (Botón L)
+    if (connectMode) {
+      if (n) {
+        if (!connectSource) {
+          connectSource = n;
+          hint.textContent = 'Haz clic en el nodo DESTINO para enlace manual';
+        } else {
+          if (connectSource !== n && !connected(connectSource, n)) {
+            pushHistory();
+            links.push({ a: connectSource.id, b: n.id });
+            toast("Nodos conectados");
+          }
+          connectSource = null;
+          connectMode = false;
+          btnConnect.classList.remove('active');
+          btnConnect.textContent = '⚡ Modo Enlace: OFF';
+          hint.innerHTML = HINT_TEXT;
+        }
+      }
+      return;
+    }
+
+    // Selección de Nodos
     if (n) {
-      selNode = n; selLink = null;
-      drag = { n, dx: p.x - n.x, dy: p.y - n.y, snap: snapshot(), moved: false, link: e.shiftKey };
-      if (e.shiftKey) linking = n;
-    } else { 
-      selNode = null; 
-      selLink = linkAt(p.x, p.y) || null; 
-      // Si no se tocó nada, iniciamos el arrastre del entorno (panning)
+      if (e.shiftKey) {
+        if (selectedNodes.includes(n)) {
+          selectedNodes = selectedNodes.filter(x => x !== n);
+          selNode = selectedNodes.length > 0 ? selectedNodes[selectedNodes.length - 1] : null;
+        } else {
+          selectedNodes.push(n);
+          selNode = n;
+        }
+      } else {
+        if (!selectedNodes.includes(n)) {
+          selectedNodes = [n];
+        }
+        selNode = n;
+      }
+      selLink = null;
+      drag = { n, dx: p.x - n.x, dy: p.y - n.y, snap: snapshot(), moved: false };
+    } else {
+      selectedNodes = [];
+      selNode = null;
+      selLink = linkAt(p.x, p.y) || null;
       if (!selLink) {
         panning = { x: e.clientX, y: e.clientY };
         cv.style.cursor = 'grabbing';
       }
     }
-    draw();
   });
+
   addEventListener('mousemove', e => {
     if (panning) {
       pan.x += e.clientX - panning.x;
       pan.y += e.clientY - panning.y;
       panning = { x: e.clientX, y: e.clientY };
-      draw();
       return;
     }
     mouse = pos(e);
     if (!drag) return;
-    if (!drag.link) { drag.n.x = mouse.x - drag.dx; drag.n.y = mouse.y - drag.dy; drag.moved = true; }
-    draw();
-  });
-  addEventListener('mouseup', e => {
-    if (panning) { panning = null; cv.style.cursor = ''; return; }
-    if (!drag) return;
-    if (drag.link) {
-      const t = nodeAt(mouse.x, mouse.y);
-      if (t && t !== drag.n && !connected(drag.n, t)) { pushHistory(drag.snap); links.push({ a: drag.n.id, b: t.id }); }
-    } else if (drag.moved) pushHistory(drag.snap);
-    drag = linking = null; draw();
-  });
-  cv.addEventListener('dblclick', e => {
-    if (pres) return;
-    const p = pos(e), n = nodeAt(p.x, p.y);
-    if (n) { selNode = n; startEdit(n); return; }
-    if (linkAt(p.x, p.y)) return;
-    pushHistory(); selNode = newNode(p.x, p.y); selLink = null; startEdit(selNode, undefined, true);
-  });
 
-  /* ---------- Teclado ---------- */
-  function nearestInDirection(from, cur, dx, dy) {
-    let best = null, bestScore = Infinity;
-    for (const n of nodes) {
-      if (n === cur) continue;
-      const vx = n.x - cur.x, vy = n.y - cur.y, along = vx * dx + vy * dy;
-      if (along <= 0) continue;
-      const score = Math.hypot(vx, vy) + Math.abs(vx * dy - vy * dx) * 1.5;
-      if (score < bestScore) { bestScore = score; best = n; }
+    // Arrastrar grupo de nodos o nodo único
+    const moveX = mouse.x - drag.dx - drag.n.x;
+    const moveY = mouse.y - drag.dy - drag.n.y;
+
+    if (selectedNodes.length > 1 && selectedNodes.includes(drag.n)) {
+      selectedNodes.forEach(sn => { sn.x += moveX; sn.y += moveY; });
+    } else {
+      drag.n.x = mouse.x - drag.dx;
+      drag.n.y = mouse.y - drag.dy;
     }
-    return best;
-  }
-  function endConnect() { conn = null; hint.textContent = HINT; draw(); }
+    drag.moved = true;
+  });
 
+  addEventListener('mouseup', () => {
+    if (panning) { panning = null; cv.style.cursor = 'crosshair'; return; }
+    if (!drag) return;
+    if (drag.moved) pushHistory(drag.snap);
+    drag = null;
+  });
+
+  cv.addEventListener('dblclick', e => {
+    if (presMode || connectMode) return;
+    const p = pos(e), n = nodeAt(p.x, p.y);
+    if (n) { selNode = n; selectedNodes = [n]; startEdit(n); return; }
+    if (linkAt(p.x, p.y)) return;
+
+    pushHistory();
+    selNode = newNode(p.x, p.y);
+    selectedNodes = [selNode];
+    selLink = null;
+    startEdit(selNode, undefined, true);
+  });
+
+  /* ---------- Botón Conexión Manual ---------- */
+  btnConnect.onclick = () => {
+    connectMode = !connectMode;
+    connectSource = null;
+    if (connectMode) {
+      btnConnect.classList.add('active');
+      btnConnect.textContent = '⚡ Modo Enlace: ON';
+      hint.textContent = 'Haz clic en el nodo ORIGEN';
+    } else {
+      btnConnect.classList.remove('active');
+      btnConnect.textContent = '⚡ Modo Enlace: OFF';
+      hint.innerHTML = HINT_TEXT;
+    }
+    cv.focus();
+  };
+
+  /* ---------- Teclado & Atajos ---------- */
   addEventListener('keydown', e => {
     if (editing) return;
     const k = e.key;
-    if (pres) {
-      const next = ['ArrowRight', 'ArrowDown', 'PageDown', ' '], prev = ['ArrowLeft', 'ArrowUp', 'PageUp'];
-      if (next.includes(k)) goTo(idx + 1); else if (prev.includes(k)) goTo(idx - 1);
-      else if (k === 'Home') goTo(0); else if (k === 'End') goTo(order.length - 1);
-      else if (k === 'Escape') { exitPres(); return; } else return;
+
+    // Navegación en Presentación
+    if (presMode) {
+      const nextKeys = ['ArrowRight', 'ArrowDown', 'PageDown', ' '], prevKeys = ['ArrowLeft', 'ArrowUp', 'PageUp'];
+      if (nextKeys.includes(k)) goToPres(presIdx + 1);
+      else if (prevKeys.includes(k)) goToPres(presIdx - 1);
+      else if (k === 'Escape') exitPres();
       e.preventDefault(); return;
     }
+
+    // Deshacer
     if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === 'z') { e.preventDefault(); undo(); return; }
 
-    if (conn) {
-      e.preventDefault();
-      const dir = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[k];
-      if (dir) { const n = nearestInDirection(conn.from, conn.target, dir[0], dir[1]); if (n) conn.target = n; draw(); }
-      else if (k === 'Enter') {
-        if (conn.target !== conn.from && !connected(conn.from, conn.target)) { pushHistory(); links.push({ a: conn.from.id, b: conn.target.id }); }
-        endConnect();
-      } else if (k === 'Escape' || k.toLowerCase() === 'c') endConnect();
+    // Escape -> Cancela o resetea vista
+    if (k === 'Escape') {
+      if (connectMode) {
+        connectMode = false; connectSource = null;
+        btnConnect.classList.remove('active');
+        btnConnect.textContent = '⚡ Modo Enlace: OFF';
+        hint.innerHTML = HINT_TEXT;
+        return;
+      }
+      pan = { x: 0, y: 0 }; selectedNodes = []; selNode = null;
+      toast("Cámara centrada");
       return;
     }
 
-    if (k === 'Escape') { pan = { x: 0, y: 0 }; draw(); return; } // Botón pánico de centrado
+    // Suprimir / Borrar
     if (k === 'Delete' || k === 'Backspace') {
       e.preventDefault();
-      if (selNode) { pushHistory(); const id = selNode.id; nodes = nodes.filter(n => n !== selNode); links = links.filter(l => l.a !== id && l.b !== id); selNode = null; }
-      else if (selLink) { pushHistory(); links = links.filter(l => l !== selLink); selLink = null; }
-      draw(); return;
+      if (selectedNodes.length > 0) {
+        pushHistory();
+        const ids = selectedNodes.map(n => n.id);
+        nodes = nodes.filter(n => !ids.includes(n.id));
+        links = links.filter(l => !ids.includes(l.a) && !ids.includes(l.b));
+        toast(`Eliminado(s) ${selectedNodes.length} nodo(s)`);
+        selectedNodes = []; selNode = null;
+      } else if (selLink) {
+        pushHistory();
+        links = links.filter(l => l !== selLink);
+        selLink = null;
+        toast("Enlace eliminado");
+      }
+      return;
     }
-    if (!selNode) return;
-    if (k.toLowerCase() === 'c' && !e.ctrlKey && !e.metaKey && nodes.length > 1) {
-      e.preventDefault(); conn = { from: selNode, target: selNode };
-      hint.textContent = 'Conectar: flechas para elegir destino · Enter confirma · Esc cancela'; draw(); return;
+
+    // Tecla 'L' -> Alternar Modo Enlace Manual
+    if (k.toLowerCase() === 'l' && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      btnConnect.click();
+      return;
     }
-    if (k === 'Tab') {
+
+    // Tecla 'C' -> Conectar en Secuencia Nodos Seleccionados
+    if (k.toLowerCase() === 'c' && !e.ctrlKey && !e.metaKey && selectedNodes.length >= 2) {
+      e.preventDefault();
+      pushHistory();
+      let added = 0;
+      for (let i = 0; i < selectedNodes.length - 1; i++) {
+        const a = selectedNodes[i], b = selectedNodes[i + 1];
+        if (!connected(a, b)) {
+          links.push({ a: a.id, b: b.id });
+          added++;
+        }
+      }
+      toast(`Conectados ${added} enlace(s) sinápticos`);
+      return;
+    }
+
+    // Tecla TAB -> Ramificar Nodo Hijo Rápidamente
+    if (k === 'Tab' && selNode) {
       e.preventDefault(); pushHistory();
-      const kids = links.filter(l => l.a === selNode.id || l.b === selNode.id).length;
-      const ang = -Math.PI / 2 + kids * 0.9;
-      const p = selNode;
-      const child = newNode(Math.min(innerWidth - 50, Math.max(50, p.x + Math.cos(ang) * 130)), Math.min(innerHeight - 50, Math.max(80, p.y + Math.sin(ang) * 130)));
-      links.push({ a: p.id, b: child.id }); selNode = child; startEdit(child, undefined, true); return;
+      const count = links.filter(l => l.a === selNode.id || l.b === selNode.id).length;
+      const angle = -Math.PI / 2 + count * 0.85;
+      const child = newNode(
+        Math.min(innerWidth - 60, Math.max(60, selNode.x + Math.cos(angle) * 140)),
+        Math.min(innerHeight - 60, Math.max(80, selNode.y + Math.sin(angle) * 140))
+      );
+      links.push({ a: selNode.id, b: child.id });
+      selNode = child; selectedNodes = [child];
+      startEdit(child, undefined, true);
+      toast("Nodo hijo creado");
+      return;
     }
+
+    if (!selNode) return;
     if (k === 'Enter' || k === 'F2') { e.preventDefault(); startEdit(selNode); return; }
-    if (k.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); startEdit(selNode, k); }
+    if (k.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && k.toLowerCase() !== 'c' && k.toLowerCase() !== 'l') {
+      e.preventDefault(); startEdit(selNode, k);
+    }
   });
 
-  /* ---------- Presentación ---------- */
-  const menu = document.getElementById('menu');
+  /* ---------- Modo Presentación Cinemática ---------- */
   function buildOrder(start) {
     const seen = new Set(), out = [];
     const visit = n => {
@@ -330,60 +661,89 @@
     nodes.forEach(n => { if (!seen.has(n.id)) visit(n); });
     return out;
   }
-  function tick() {
-    cam.x += (camT.x - cam.x) * 0.14; cam.y += (camT.y - cam.y) * 0.14; cam.k += (camT.k - cam.k) * 0.14;
-    draw();
-    if (Math.abs(camT.x - cam.x) + Math.abs(camT.y - cam.y) + Math.abs(camT.k - cam.k) * 100 > 0.5) animId = requestAnimationFrame(tick);
-    else { Object.assign(cam, camT); animId = 0; draw(); }
+
+  function goToPres(i) {
+    presIdx = Math.max(0, Math.min(order.length - 1, i));
+    const n = order[presIdx];
+    camT = { x: n.x, y: n.y, k: 1.7 };
+    hint.textContent = `Presentación: ${presIdx + 1} / ${order.length} · Usar Flechas para navegar · Esc para salir`;
   }
-  function goTo(i) {
-    idx = Math.max(0, Math.min(order.length - 1, i));
-    const n = order[idx]; camT = { x: n.x, y: n.y, k: 1.8 };
-    hint.textContent = (idx + 1) + ' / ' + order.length + ' · flechas para navegar · Esc para salir';
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) { Object.assign(cam, camT); draw(); }
-    else if (!animId) animId = requestAnimationFrame(tick);
-  }
+
   function startPres() {
-    if (!nodes.length) { alert('Crea al menos un nodo para presentar.'); return; }
-    endEdit(false); conn = null;
-    order = buildOrder(selNode || nodes[0]); const n = order[0];
-    cam = { x: n.x, y: n.y, k: 1 }; pres = true; menu.style.display = 'none';
-    try { document.documentElement.requestFullscreen && document.documentElement.requestFullscreen().catch(() => {}); } catch (_) {}
-    goTo(0); cv.focus();
+    if (!nodes.length) { toast('Crea al menos un nodo para presentar'); return; }
+    endEdit(false); connectMode = false; btnConnect.classList.remove('active');
+    order = buildOrder(selNode || nodes[0]);
+    const n = order[0];
+    cam = { x: n.x, y: n.y, k: 1 };
+    presMode = true;
+    document.getElementById('menu').style.display = 'none';
+    goToPres(0); cv.focus();
   }
+
   function exitPres() {
-    if (!pres) return;
-    selNode = order[idx] || null; pres = false; menu.style.display = 'flex'; hint.textContent = HINT;
-    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-    draw(); cv.focus();
+    if (!presMode) return;
+    presMode = false;
+    document.getElementById('menu').style.display = 'flex';
+    hint.innerHTML = HINT_TEXT;
+    cv.focus();
   }
-  document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) exitPres(); });
   document.getElementById('btnPres').onclick = startPres;
 
-  /* ---------- Exportación ---------- */
-  function exportCanvas() {
-    const d = window.devicePixelRatio || 1, off = document.createElement('canvas');
+  /* ---------- Exportación & JSON ---------- */
+  function exportCanvasHD() {
+    const d = window.devicePixelRatio || 1;
+    const off = document.createElement('canvas');
     off.width = cv.clientWidth * d; off.height = cv.clientHeight * d;
-    const g = off.getContext('2d'); g.scale(d, d); render(g, cv.clientWidth, cv.clientHeight, true);
+    const g = off.getContext('2d');
+    g.scale(d, d);
+    // Renderizado limpio de exportación
+    g.fillStyle = '#030611'; g.fillRect(0, 0, cv.clientWidth, cv.clientHeight);
+    links.forEach(l => {
+      const a = byId(l.a), b = byId(l.b); if (!a || !b) return;
+      g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y);
+      g.strokeStyle = 'rgba(0, 243, 255, 0.4)'; g.lineWidth = 2; g.stroke();
+    });
+    nodes.forEach(n => {
+      g.beginPath(); g.arc(n.x, n.y, R, 0, Math.PI * 2);
+      g.fillStyle = '#0a0f24'; g.fill();
+      g.strokeStyle = n.color; g.lineWidth = 2; g.stroke();
+      g.fillStyle = '#fff'; g.font = '600 13px system-ui, sans-serif';
+      g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText(n.text || '', n.x, n.y);
+    });
     return off;
   }
-  function download(url, name) { const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
-  document.getElementById('btnPng').onclick = () => download(exportCanvas().toDataURL('image/png'), 'mapa-mental.png');
-  document.getElementById('btnPdf').onclick = () => {
-    if (!window.jspdf) { alert('No se pudo cargar jsPDF. Revisa tu conexión a internet.'); return; }
-    const off = exportCanvas(), w = off.width, h = off.height;
-    const pdf = new window.jspdf.jsPDF({ orientation: w >= h ? 'landscape' : 'portrait', unit: 'px', format: [w, h], hotfixes: ['px_scaling'] });
-    pdf.addImage(off.toDataURL('image/png'), 'PNG', 0, 0, w, h);
-    pdf.save('mapa-mental.pdf');
+
+  function download(url, name) {
+    const a = document.createElement('a'); a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+
+  document.getElementById('btnPng').onclick = () => {
+    download(exportCanvasHD().toDataURL('image/png'), 'mapa-neuronal.png');
+    toast("Imagen PNG descargada");
   };
+
+  document.getElementById('btnPdf').onclick = () => {
+    if (!window.jspdf) { toast('Error cargando librería jsPDF'); return; }
+    const off = exportCanvasHD(), w = off.width, h = off.height;
+    const pdf = new window.jspdf.jsPDF({ orientation: w >= h ? 'landscape' : 'portrait', unit: 'px', format: [w, h] });
+    pdf.addImage(off.toDataURL('image/png'), 'PNG', 0, 0, w, h);
+    pdf.save('mapa-neuronal.pdf');
+    toast("Documento PDF guardado");
+  };
+
   document.getElementById('btnUndo').onclick = undo;
 
-  /* ---------- Guardar y abrir JSON ---------- */
+  // Guardar / Abrir JSON
   document.getElementById('btnSave').onclick = () => {
-    const data = { app: 'mapa-mental-neuronal', version: 1, style, nextId, colorIdx, nodes, links };
+    const data = { app: 'neural-map-cyber', version: 2, style, nextId, colorIdx, nodes, links };
     const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
-    download(url, 'mapa-mental.json'); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    download(url, 'mapa-neuronal.json');
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast("Archivo JSON guardado");
   };
+
   const fileIn = document.getElementById('fileIn');
   document.getElementById('btnLoad').onclick = () => { fileIn.value = ''; fileIn.click(); };
   fileIn.onchange = () => {
@@ -392,27 +752,28 @@
     r.onload = () => {
       try {
         const d = JSON.parse(r.result);
-        if (!Array.isArray(d.nodes) || !Array.isArray(d.links)) throw new Error('formato');
-        const ns = d.nodes.filter(n => n && Number.isFinite(n.id) && Number.isFinite(n.x) && Number.isFinite(n.y))
-          .map(n => ({ id: n.id, x: n.x, y: n.y, text: String(n.text ?? ''), color: /^#[0-9a-f]{6}$/i.test(n.color) ? n.color : COLORS[0] }));
-        const ids = new Set(ns.map(n => n.id));
-        const ls = d.links.filter(l => l && ids.has(l.a) && ids.has(l.b) && l.a !== l.b).map(l => ({ a: l.a, b: l.b }));
+        if (!Array.isArray(d.nodes) || !Array.isArray(d.links)) throw new Error();
         pushHistory();
-        nodes = ns; links = ls; selNode = selLink = conn = null;
-        nextId = Math.max(Number.isFinite(d.nextId) ? d.nextId : 1, ...ids, 0) + (ids.size ? 1 : 0);
-        colorIdx = Number.isFinite(d.colorIdx) ? d.colorIdx : ns.length;
-        if (Number.isInteger(d.style) && d.style >= 0 && d.style < STYLES.length) { style = d.style; btnStyle.textContent = 'Estilo: ' + STYLES[style]; }
-        // Centrar mapa cargado
-        pan = { x: 0, y: 0 }; 
-        draw(); cv.focus();
-      } catch (_) { alert('No se pudo abrir el archivo: no parece un mapa guardado desde esta aplicación.'); }
+        nodes = d.nodes; links = d.links; nextId = d.nextId || nodes.length + 1;
+        colorIdx = d.colorIdx || 0; style = d.style || 0;
+        selectedNodes = []; selNode = null;
+        btnStyle.textContent = '🎨 Estilo: ' + STYLES[style];
+        toast("Mapa cargado con éxito");
+      } catch (_) { toast('Archivo JSON no válido'); }
     };
     r.readAsText(f);
   };
-  const btnStyle = document.getElementById('btnStyle');
-  btnStyle.onclick = () => { style = (style + 1) % STYLES.length; btnStyle.textContent = 'Estilo: ' + STYLES[style]; draw(); cv.focus(); };
 
-  resize(); cv.focus();
+  btnStyle.onclick = () => {
+    style = (style + 1) % STYLES.length;
+    btnStyle.textContent = '🎨 Estilo: ' + STYLES[style];
+    toast(`Estilo cambiado a ${STYLES[style]}`);
+  };
+
+  // Inicialización Inicial
+  resize();
+  requestAnimationFrame(loop);
+  cv.focus();
 })();
 </script>
 </body>
