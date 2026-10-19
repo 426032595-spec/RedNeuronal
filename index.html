@@ -704,10 +704,30 @@
   };
 
   document.getElementById('btnUndo').onclick = undo;
+  
   document.getElementById('btnSave').onclick = () => {
+    // 1. Pedir al usuario que ingrese su nombre
+    let tuNombre = prompt("Ingresa tu nombre para el archivo:", "MiNombre");
+    
+    // Si el usuario presiona "Cancelar", no guardamos nada
+    if (tuNombre === null) return; 
+    
+    // Limpiamos los espacios en blanco y si lo deja vacío, usamos "Usuario" por defecto
+    tuNombre = tuNombre.trim() || "Usuario";
+    
+    // 2. Formatear el nombre del archivo: (TuNombre) + MN.json
+    const fileName = `${tuNombre}MN.json`; 
+
     const data = { app: 'neural-map-cyber', version: 2, style, nextId, colorIdx, nodes, links };
     const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
-    download(url, 'mapa-neuronal.json'); setTimeout(() => URL.revokeObjectURL(url), 1000); toast("Archivo JSON guardado");
+    
+    // 3. Descargar usando el nuevo nombre
+    download(url, fileName); 
+    
+    setTimeout(() => URL.revokeObjectURL(url), 1000); 
+    
+    // Mostrar en el mensaje verde flotante (toast) el nombre exacto con el que se guardó
+    toast(`Archivo ${fileName} guardado`);
   };
 
   const fileIn = document.getElementById('fileIn');
