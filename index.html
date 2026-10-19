@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Neural MindMap Cyberpunk 60FPS</title>
+<title>Neural MindMap Cyberpunk 60FPS (Optimizado)</title>
 <style>
   :root {
     --bg-dark: #030611;
@@ -140,7 +140,7 @@
   let pan = { x: 0, y: 0 }, panning = null;
   let presMode = false, order = [], presIdx = 0, cam = { x: 0, y: 0, k: 1 }, camT = { x: 0, y: 0, k: 1 };
   
-  // Variables para la navegación por letras (Restringida a vecinos)
+  // Variables para la navegación por letras
   let presCycleKey = null, presCycleIndex = 0;
 
   // Interactividad en presentación
@@ -230,7 +230,6 @@
 
   const connected = (a, b) => links.some(l => (l.a === a.id && l.b === b.id) || (l.a === b.id && l.b === a.id));
   
-  // Devuelve los nodos directamente conectados al nodo especificado
   const getNeighbors = (node) => {
     if (!node) return [];
     return links
@@ -263,7 +262,7 @@
     }
   }
 
-  /* ---------- Renderizado Principal (60 FPS) ---------- */
+  /* ---------- Renderizado Principal (60 FPS - OPTIMIZADO) ---------- */
   function wrapText(text, maxW) {
     const lines = []; let cur = '';
     for (const w of (text || '').split(/\s+/).filter(Boolean)) {
@@ -283,24 +282,26 @@
     const w = cv.clientWidth, h = cv.clientHeight;
     ctx.clearRect(0, 0, w, h);
 
-    // Fondo Cyberpunk
+    // Fondo Cyberpunk (Optimizado)
     ctx.fillStyle = '#030611'; ctx.fillRect(0, 0, w, h);
     ctx.strokeStyle = 'rgba(0, 243, 255, 0.03)';
     ctx.lineWidth = 1;
     const gridSpacing = 40;
-    const offX = pan.x % gridSpacing, offY = pan.y % gridSpacing;
+    const offX = (pan.x % gridSpacing) | 0, offY = (pan.y % gridSpacing) | 0;
+    
     ctx.beginPath();
     for (let x = offX; x < w; x += gridSpacing) { ctx.moveTo(x, 0); ctx.lineTo(x, h); }
     for (let y = offY; y < h; y += gridSpacing) { ctx.moveTo(0, y); ctx.lineTo(w, y); }
     ctx.stroke();
 
+    // Partículas (Renderizado sin sombras)
     ctx.fillStyle = '#00f3ff';
     bgParticles.forEach(p => {
       p.x += p.vx; p.y += p.vy;
       if (p.x < 0) p.x = w; if (p.x > w) p.x = 0;
       if (p.y < 0) p.y = h; if (p.y > h) p.y = 0;
       ctx.globalAlpha = p.alpha * (0.6 + 0.4 * Math.sin(time * 0.002 + p.x));
-      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(p.x | 0, p.y | 0, p.r, 0, Math.PI * 2); ctx.fill();
     });
     ctx.globalAlpha = 1;
 
@@ -311,29 +312,28 @@
     if (cur) {
       ctx.translate(w / 2, h / 2); ctx.scale(cam.k, cam.k); ctx.translate(-cam.x, -cam.y);
     } else {
-      ctx.translate(pan.x, pan.y);
+      ctx.translate(pan.x | 0, pan.y | 0);
     }
 
-    // Conexiones
+    // Conexiones (Sombras solo en estado activo)
+    ctx.lineJoin = 'round';
     for (const l of links) {
       const a = byId(l.a), b = byId(l.b); if (!a || !b) continue;
       const isConnectedToCur = presMode && cur && (l.a === cur.id || l.b === cur.id);
       const sel = l === selLink || (presMode && l === hoveredLink);
       
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+      ctx.beginPath(); ctx.moveTo(a.x | 0, a.y | 0); ctx.lineTo(b.x | 0, b.y | 0);
       if (sel) {
-        ctx.strokeStyle = '#ff007f';
-        ctx.lineWidth = presMode ? 3.5 / cam.k : 3;
-        ctx.shadowColor = '#ff007f'; ctx.shadowBlur = presMode ? 14 / cam.k : 12;
+        ctx.strokeStyle = '#ff007f'; ctx.lineWidth = presMode ? 3.5 / cam.k : 3;
+        ctx.shadowColor = '#ff007f'; ctx.shadowBlur = presMode ? 10 / cam.k : 8;
       } else if (isConnectedToCur) {
-        ctx.strokeStyle = '#00f3ff';
-        ctx.lineWidth = 2.5 / cam.k;
-        ctx.shadowColor = '#00f3ff'; ctx.shadowBlur = 8 / cam.k;
+        ctx.strokeStyle = '#00f3ff'; ctx.lineWidth = 2.5 / cam.k;
+        ctx.shadowBlur = 0; // Desactivado por defecto para rendimiento
       } else {
-        ctx.strokeStyle = 'rgba(0, 243, 255, 0.25)';
-        ctx.lineWidth = presMode ? 1.5 / cam.k : 1.5;
+        ctx.strokeStyle = 'rgba(0, 243, 255, 0.25)'; ctx.lineWidth = presMode ? 1.5 / cam.k : 1.5;
+        ctx.shadowBlur = 0;
       }
-      ctx.stroke(); ctx.shadowBlur = 0;
+      ctx.stroke(); ctx.shadowBlur = 0; // Reset rápido
     }
 
     // Impulsos
@@ -341,15 +341,14 @@
     impulses.forEach(imp => {
       const a = byId(imp.link.a), b = byId(imp.link.b);
       if (!a || !b) return;
-      const ix = a.x + (b.x - a.x) * imp.t;
-      const iy = a.y + (b.y - a.y) * imp.t;
+      const ix = (a.x + (b.x - a.x) * imp.t) | 0;
+      const iy = (a.y + (b.y - a.y) * imp.t) | 0;
       ctx.beginPath(); ctx.arc(ix, iy, presMode ? 3.5 / cam.k : 3.5, 0, Math.PI * 2);
-      ctx.fillStyle = imp.color; ctx.shadowColor = imp.color; ctx.shadowBlur = presMode ? 10 / cam.k : 10;
-      ctx.fill(); ctx.shadowBlur = 0;
+      ctx.fillStyle = imp.color; ctx.fill(); 
     });
 
     if (connectMode && connectSource) {
-      ctx.beginPath(); ctx.moveTo(connectSource.x, connectSource.y); ctx.lineTo(mouse.x, mouse.y);
+      ctx.beginPath(); ctx.moveTo(connectSource.x | 0, connectSource.y | 0); ctx.lineTo(mouse.x | 0, mouse.y | 0);
       ctx.setLineDash([6, 6]); ctx.lineDashOffset = -time * 0.03;
       ctx.strokeStyle = '#00f3ff'; ctx.lineWidth = 2; ctx.stroke(); ctx.setLineDash([]);
     }
@@ -361,8 +360,8 @@
       if (!cur) return 1;
       if (presMode && hoveredLink && (n.id === hoveredLink.a || n.id === hoveredLink.b)) return 1;
       if (n === cur) return 1;
-      if (currentNeighbors.includes(n)) return 0.85; // Resaltar vecinos conectados
-      return 0.12; // Atenuar otros nodos no conectados
+      if (currentNeighbors.includes(n)) return 0.85; 
+      return 0.12; 
     };
 
     for (const n of nodes) {
@@ -370,61 +369,50 @@
       const isSource = connectSource === n;
       const isNeighbor = presMode && currentNeighbors.includes(n);
       const z = sizeOf(n);
-      const breathe = Math.sin(time * 0.003 + n.phase) * 3;
+      const nx = n.x | 0, ny = n.y | 0; // Optimización sub-pixel
       ctx.globalAlpha = opacityOf(n);
 
       ctx.beginPath();
-      if (style === 2) rr(ctx, n.x - z.w / 2, n.y - z.h / 2, z.w, z.h, z.h / 2);
-      else ctx.arc(n.x, n.y, R, 0, Math.PI * 2);
+      if (style === 2) rr(ctx, nx - (z.w / 2 | 0), ny - (z.h / 2 | 0), z.w, z.h, z.h / 2);
+      else ctx.arc(nx, ny, R, 0, Math.PI * 2);
 
       if (style === 0) { 
-        const grad = ctx.createRadialGradient(n.x, n.y, 2, n.x, n.y, R + 4);
+        const grad = ctx.createRadialGradient(nx, ny, 2, nx, ny, R + 4);
         grad.addColorStop(0, n.color + 'ff'); grad.addColorStop(0.6, n.color + '44'); grad.addColorStop(1, '#050a19');
         ctx.fillStyle = grad;
       } else if (style === 3) { ctx.fillStyle = n.color + 'dd';
       } else { ctx.fillStyle = '#070d1f'; }
 
-      ctx.shadowColor = isNeighbor ? '#00f3ff' : n.color; 
-      ctx.shadowBlur = (isSelected || isSource || isNeighbor) ? 24 + breathe : 12 + breathe;
+      // Sombras SOLO si es necesario (mejora masiva de FPS)
+      if (isSelected || isSource || isNeighbor) {
+        ctx.shadowColor = isNeighbor ? '#00f3ff' : n.color; 
+        ctx.shadowBlur = 12 + (Math.sin(time * 0.003 + n.phase) * 3);
+      } else {
+        ctx.shadowBlur = 0; 
+      }
+      
       ctx.fill(); ctx.shadowBlur = 0;
 
       ctx.lineWidth = (isSelected || isNeighbor) ? 2.5 : 1.5;
       ctx.strokeStyle = isSelected ? '#ffffff' : (isNeighbor ? '#00f3ff' : n.color);
       ctx.stroke();
 
-      if (isSelected || isNeighbor) {
-        ctx.save(); ctx.beginPath();
-        if (style === 2) rr(ctx, n.x - z.w / 2 - 5, n.y - z.h / 2 - 5, z.w + 10, z.h + 10, z.h / 2 + 3);
-        else ctx.arc(n.x, n.y, R + 6, 0, Math.PI * 2);
-        ctx.setLineDash([6, 6]); ctx.lineDashOffset = -time * 0.02;
-        ctx.strokeStyle = isNeighbor ? '#00f3ff' : '#ffffff'; 
-        ctx.lineWidth = 1.8; ctx.stroke();
-        ctx.restore();
-      }
-
+      // Textos (Sin bordes pesados)
       const lines = style === 2 ? [n.text || ''] : wrapText(n.text, R * 1.6).slice(0, 3);
-      const lh = 15, y0 = n.y - ((lines.length - 1) * lh) / 2;
+      const lh = 15, y0 = ny - ((lines.length - 1) * lh) / 2;
 
+      ctx.fillStyle = '#ffffff';
       lines.forEach((ln, i) => {
-        ctx.lineJoin = 'round'; ctx.lineWidth = 3;
-        ctx.strokeStyle = '#030611'; ctx.strokeText(ln, n.x, y0 + i * lh);
-        ctx.fillStyle = '#ffffff'; ctx.fillText(ln, n.x, y0 + i * lh);
+        ctx.fillText(ln, nx, y0 + i * lh);
       });
       
-      // Dibujar la letra asignada a la neurona
       const keyText = n.key || (n.text ? n.text.trim().charAt(0).toUpperCase() : '');
       if (keyText) {
-        ctx.save();
         ctx.font = isNeighbor ? 'bold 14px system-ui, sans-serif' : '700 12px system-ui, sans-serif';
         ctx.fillStyle = isNeighbor ? '#00f3ff' : 'rgba(255, 255, 255, 0.45)';
-        if (isNeighbor) {
-          ctx.shadowColor = '#00f3ff'; ctx.shadowBlur = 10;
-        }
-        const keyY = style === 2 ? n.y - z.h / 2 - 14 : n.y - R - 14;
-        ctx.fillText(`[ ${keyText} ]`, n.x, keyY);
-        ctx.restore();
+        const keyY = style === 2 ? ny - (z.h / 2) - 14 : ny - R - 14;
+        ctx.fillText(`[ ${keyText} ]`, nx, keyY | 0);
       }
-
       ctx.globalAlpha = 1;
     }
     ctx.restore();
@@ -518,7 +506,7 @@
 
   keyEditor.addEventListener('input', () => {
     if (editing) {
-      editInfo.customKey = true; // Marcamos que el usuario introdujo manualmente la letra
+      editInfo.customKey = true; 
       editing.key = keyEditor.value.trim().toUpperCase();
     }
   });
