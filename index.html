@@ -395,6 +395,7 @@
     cv.style.width = innerWidth + 'px'; cv.style.height = innerHeight + 'px';
     ctx.setTransform(d, 0, 0, d, 0, 0);
     initBg();
+    if (presMode) goToPres(presIdx); // reajusta el zoom si cambia el tamaño de la ventana/proyector
   }
   addEventListener('resize', resize);
 
@@ -662,10 +663,21 @@
     return out;
   }
 
+  // Fracción de la pantalla que ocupa la neurona al presentar (0.6 = 60 %, 0.7 = 70 %)
+  const PRES_FRACTION = 0.65;
+
+  // Zoom necesario para que el nodo ocupe PRES_FRACTION del ancho/alto, sin salirse de la pantalla
+  function presScale(n) {
+    const z = sizeOf(n);
+    const kx = (innerWidth * PRES_FRACTION) / z.w;
+    const ky = (innerHeight * PRES_FRACTION) / z.h;
+    return Math.min(kx, ky);
+  }
+
   function goToPres(i) {
     presIdx = Math.max(0, Math.min(order.length - 1, i));
     const n = order[presIdx];
-    camT = { x: n.x, y: n.y, k: 1.7 };
+    camT = { x: n.x, y: n.y, k: presScale(n) };
     hint.textContent = `Presentación: ${presIdx + 1} / ${order.length} · Usar Flechas para navegar · Esc para salir`;
   }
 
