@@ -124,9 +124,12 @@
   let pan = { x: 0, y: 0 }, panning = null;
   let presMode = false, order = [], presIdx = 0, cam = { x: 0, y: 0, k: 1 }, camT = { x: 0, y: 0, k: 1 };
 
+  // Interactividad en presentación
+  let hoveredLink = null, mouseScreen = { x: 0, y: 0 };
+
   // Partículas de Fondo & Sinapsis
   let bgParticles = [];
-  let impulses = []; // Partículas de energía sináptica viajando por las conexiones
+  let impulses = [];
 
   /* ---------- Toast UI ---------- */
   function toast(msg) {
@@ -165,7 +168,7 @@
     if (editing || !history.length) return;
     const s = JSON.parse(history.pop());
     nodes = s.nodes; links = s.links; nextId = s.nextId; colorIdx = s.colorIdx;
-    selNode = selLink = connectSource = null; selectedNodes = []; draw();
+    selNode = selLink = connectSource = hoveredLink = null; selectedNodes = []; draw();
     toast("Acción deshecha");
   }
 
@@ -187,8 +190,27 @@
     const z = sizeOf(n); return Math.abs(x - n.x) <= z.w / 2 && Math.abs(y - n.y) <= z.h / 2;
   };
   const nodeAt = (x, y) => { for (let i = nodes.length - 1; i >= 0; i--) if (hit(nodes[i], x, y)) return nodes[i]; return null; };
-  const linkAt = (x, y) => links.slice().reverse().find(l => { const a = byId(l.a), b = byId(l.b); return a && b && distToSeg(x, y, a.x, a.y, b.x, b.y) <= TOL; });
-  const pos = e => { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left - pan.x, y: e.clientY - r.top - pan.y }; };
+  
+  // Transformación de coordenadas para presentación y paneo
+  const pos = e => { 
+    const r = cv.getBoundingClientRect();
+    const cx = e.clientX - r.left, cy = e.clientY - r.top;
+    if (presMode) {
+      const w = cv.clientWidth, h = cv.clientHeight;
+      return { x: (cx - w / 2) / cam.k + cam.x, y: (cy - h / 2) / cam.k + cam.y };
+    }
+    return { x: cx - pan.x, y: cy - pan.y }; 
+  };
+
+  const linkAt = (x, y) => {
+    // Si estamos en presentación, el área de clic de la línea escala con la cámara para facilitar pulsarlo
+    const tol = presMode ? TOL / cam.k : TOL; 
+    return links.slice().reverse().find(l => { 
+      const a = byId(l.a), b = byId(l.b); 
+      return a && b && distToSeg(x, y, a.x, a.y, b.x, b.y) <= tol; 
+    });
+  };
+
   const connected = (a, b) => links.some(l => (l.a === a.id && l.b === b.id) || (l.a === b.id && l.b === a.id));
   const newNode = (x, y) => {
     const n = { id: nextId++, x, y, text: 'Neurona', color: PALETTE[colorIdx++ % PALETTE.length], phase: Math.random() * Math.PI * 2 };
@@ -198,7 +220,6 @@
 
   /* ---------- Impulsos Sinápticos ---------- */
   function updateImpulses() {
-    // Generar nuevos impulsos aleatoriamente
     if (links.length > 0 && Math.random() < 0.08) {
       const l = links[Math.floor(Math.random() * links.length)];
       impulses.push({
@@ -208,7 +229,6 @@
         color: byId(l.a)?.color || '#00f3ff'
       });
     }
-    // Actualizar existentes
     for (let i = impulses.length - 1; i >= 0; i--) {
       impulses[i].t += impulses[i].speed;
       if (impulses[i].t >= 1) impulses.splice(i, 1);
@@ -235,10 +255,8 @@
     const w = cv.clientWidth, h = cv.clientHeight;
     ctx.clearRect(0, 0, w, h);
 
-    // 1. Fondo Cyberpunk con Cuadrícula y Polvo Estelar
+    // 1. Fondo Cyberpunk
     ctx.fillStyle = '#030611'; ctx.fillRect(0, 0, w, h);
-    
-    // Cuadrícula sutil
     ctx.strokeStyle = 'rgba(0, 243, 255, 0.03)';
     ctx.lineWidth = 1;
     const gridSpacing = 40;
@@ -248,7 +266,6 @@
     for (let y = offY; y < h; y += gridSpacing) { ctx.moveTo(0, y); ctx.lineTo(w, y); }
     ctx.stroke();
 
-    // Partículas flotantes
     ctx.fillStyle = '#00f3ff';
     bgParticles.forEach(p => {
       p.x += p.vx; p.y += p.vy;
@@ -271,16 +288,17 @@
     // 2. Renderizar Conexiones (Links)
     for (const l of links) {
       const a = byId(l.a), b = byId(l.b); if (!a || !b) continue;
-      const sel = l === selLink;
+      const sel = l === selLink || (presMode && l === hoveredLink);
       
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
       ctx.strokeStyle = sel ? '#ff007f' : 'rgba(0, 243, 255, 0.25)';
-      ctx.lineWidth = sel ? 3 : 1.5;
-      if (sel) { ctx.shadowColor = '#ff007f'; ctx.shadowBlur = 12; }
+      // Si la línea está seleccionada en presentación, evitamos que engorde en exceso con el zoom
+      ctx.lineWidth = sel ? (presMode ? 3 / cam.k : 3) : (presMode ? 1.5 / cam.k : 1.5);
+      if (sel) { ctx.shadowColor = '#ff007f'; ctx.shadowBlur = presMode ? 12 / cam.k : 12; }
       ctx.stroke(); ctx.shadowBlur = 0;
     }
 
-    // 3. Renderizar Impulsos Sinápticos Animados
+    // 3. Renderizar Impulsos Sinápticos
     updateImpulses();
     impulses.forEach(imp => {
       const a = byId(imp.link.a), b = byId(imp.link.b);
@@ -289,15 +307,14 @@
       const iy = a.y + (b.y - a.y) * imp.t;
 
       ctx.beginPath();
-      ctx.arc(ix, iy, 3.5, 0, Math.PI * 2);
+      ctx.arc(ix, iy, presMode ? 3.5 / cam.k : 3.5, 0, Math.PI * 2);
       ctx.fillStyle = imp.color;
       ctx.shadowColor = imp.color;
-      ctx.shadowBlur = 10;
+      ctx.shadowBlur = presMode ? 10 / cam.k : 10;
       ctx.fill();
       ctx.shadowBlur = 0;
     });
 
-    // Guía del modo enlace manual
     if (connectMode && connectSource) {
       ctx.beginPath(); ctx.moveTo(connectSource.x, connectSource.y); ctx.lineTo(mouse.x, mouse.y);
       ctx.setLineDash([6, 6]);
@@ -309,60 +326,49 @@
     // 4. Renderizar Nodos
     ctx.font = '600 13px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     const isNb = (n, m) => links.some(l => (l.a === n.id && l.b === m.id) || (l.b === n.id && l.a === m.id));
-    const opacityOf = n => !cur ? 1 : n === cur ? 1 : isNb(cur, n) ? 0.7 : 0.15;
+    
+    // Iluminar nodos si su línea está bajo el cursor en presentación
+    const opacityOf = n => {
+      if (!cur) return 1;
+      if (presMode && hoveredLink && (n.id === hoveredLink.a || n.id === hoveredLink.b)) return 1;
+      return n === cur ? 1 : isNb(cur, n) ? 0.7 : 0.15;
+    };
 
     for (const n of nodes) {
       const isSelected = selectedNodes.includes(n);
       const isSource = connectSource === n;
       const z = sizeOf(n);
-      const breathe = Math.sin(time * 0.003 + n.phase) * 3; // Resplandor palpitante
+      const breathe = Math.sin(time * 0.003 + n.phase) * 3;
       ctx.globalAlpha = opacityOf(n);
 
-      // Trazar Forma
       ctx.beginPath();
       if (style === 2) rr(ctx, n.x - z.w / 2, n.y - z.h / 2, z.w, z.h, z.h / 2);
       else ctx.arc(n.x, n.y, R, 0, Math.PI * 2);
 
-      // Relleno según Estilo
-      if (style === 0) { // Neurona
+      if (style === 0) { 
         const grad = ctx.createRadialGradient(n.x, n.y, 2, n.x, n.y, R + 4);
-        grad.addColorStop(0, n.color + 'ff');
-        grad.addColorStop(0.6, n.color + '44');
-        grad.addColorStop(1, '#050a19');
+        grad.addColorStop(0, n.color + 'ff'); grad.addColorStop(0.6, n.color + '44'); grad.addColorStop(1, '#050a19');
         ctx.fillStyle = grad;
-      } else if (style === 3) { // Sólido
-        ctx.fillStyle = n.color + 'dd';
-      } else { // Anillo / Píldora
-        ctx.fillStyle = '#070d1f';
-      }
+      } else if (style === 3) { ctx.fillStyle = n.color + 'dd';
+      } else { ctx.fillStyle = '#070d1f'; }
 
-      // Sombra Neón
-      ctx.shadowColor = n.color;
-      ctx.shadowBlur = (isSelected || isSource) ? 24 + breathe : 12 + breathe;
-      ctx.fill();
-      ctx.shadowBlur = 0;
+      ctx.shadowColor = n.color; ctx.shadowBlur = (isSelected || isSource) ? 24 + breathe : 12 + breathe;
+      ctx.fill(); ctx.shadowBlur = 0;
 
-      // Borde del Nodo
       ctx.lineWidth = isSelected ? 2.5 : 1.5;
       ctx.strokeStyle = isSelected ? '#ffffff' : n.color;
       ctx.stroke();
 
-      // Animación de Selección (Marching Ants / Glowing Ring)
       if (isSelected) {
         ctx.save();
         ctx.beginPath();
         if (style === 2) rr(ctx, n.x - z.w / 2 - 5, n.y - z.h / 2 - 5, z.w + 10, z.h + 10, z.h / 2 + 3);
         else ctx.arc(n.x, n.y, R + 6, 0, Math.PI * 2);
-
-        ctx.setLineDash([6, 6]);
-        ctx.lineDashOffset = -time * 0.02;
-        ctx.strokeStyle = '#00f3ff';
-        ctx.lineWidth = 1.8;
-        ctx.stroke();
+        ctx.setLineDash([6, 6]); ctx.lineDashOffset = -time * 0.02;
+        ctx.strokeStyle = '#00f3ff'; ctx.lineWidth = 1.8; ctx.stroke();
         ctx.restore();
       }
 
-      // Texto del Nodo
       const lines = style === 2 ? [n.text || ''] : wrapText(n.text, R * 1.6).slice(0, 3);
       const lh = 15, y0 = n.y - ((lines.length - 1) * lh) / 2;
 
@@ -371,14 +377,53 @@
         ctx.strokeStyle = '#030611'; ctx.strokeText(ln, n.x, y0 + i * lh);
         ctx.fillStyle = '#ffffff'; ctx.fillText(ln, n.x, y0 + i * lh);
       });
-
       ctx.globalAlpha = 1;
     }
 
-    ctx.restore();
+    ctx.restore(); // Fin de coordenadas de cámara
+
+    // 5. Renderizar miniatura (Tooltip) sobre enlaces en modo presentación
+    if (presMode && hoveredLink) {
+      const targetId = hoveredLink.a === cur?.id ? hoveredLink.b : (hoveredLink.b === cur?.id ? hoveredLink.a : hoveredLink.b);
+      const targetNode = byId(targetId);
+
+      if (targetNode) {
+        // Renderizamos la miniatura flotante junto al cursor en coordenadas fijas de pantalla
+        const sx = mouseScreen.x + 15;
+        const sy = mouseScreen.y - 25;
+
+        ctx.save();
+        ctx.translate(sx, sy);
+
+        // Círculo miniatura del nodo
+        ctx.beginPath();
+        ctx.arc(10, 10, 8, 0, Math.PI * 2);
+        ctx.fillStyle = targetNode.color + '66';
+        ctx.fill();
+        ctx.strokeStyle = targetNode.color;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Caja de texto con el nombre
+        const textStr = targetNode.text;
+        ctx.font = '600 13px system-ui, sans-serif';
+        const tw = ctx.measureText(textStr).width;
+
+        ctx.fillStyle = 'rgba(5, 10, 25, 0.9)';
+        ctx.strokeStyle = 'rgba(0, 243, 255, 0.3)';
+        ctx.lineWidth = 1;
+        rr(ctx, 24, 0, tw + 16, 20, 6);
+        ctx.fill(); ctx.stroke();
+
+        ctx.fillStyle = '#fff';
+        ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillText(textStr, 32, 10);
+
+        ctx.restore();
+      }
+    }
   }
 
-  /* Bucle Continuo a 60 FPS */
   function loop(time) {
     if (presMode) {
       cam.x += (camT.x - cam.x) * 0.12;
@@ -395,7 +440,7 @@
     cv.style.width = innerWidth + 'px'; cv.style.height = innerHeight + 'px';
     ctx.setTransform(d, 0, 0, d, 0, 0);
     initBg();
-    if (presMode) goToPres(presIdx); // reajusta el zoom si cambia el tamaño de la ventana/proyector
+    if (presMode) goToPres(presIdx);
   }
   addEventListener('resize', resize);
 
@@ -418,11 +463,7 @@
   }
 
   editor.addEventListener('input', () => { if (editing) editing.text = editor.value; });
-  editor.addEventListener('keydown', e => {
-    e.stopPropagation();
-    if (e.key === 'Enter') endEdit(false);
-    if (e.key === 'Escape') endEdit(true);
-  });
+  editor.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') endEdit(false); if (e.key === 'Escape') endEdit(true); });
   editor.addEventListener('blur', () => endEdit(false));
 
   /* ---------- Gestión de Ratón e Interacción ---------- */
@@ -431,94 +472,96 @@
     if (presMode) return;
     const p = pos(e), l = linkAt(p.x, p.y);
     if (l && !nodeAt(p.x, p.y)) {
-      pushHistory();
-      links = links.filter(x => x !== l);
+      pushHistory(); links = links.filter(x => x !== l);
       if (selLink === l) selLink = null;
       toast("Enlace eliminado");
     }
   });
 
   cv.addEventListener('mousedown', e => {
-    if (e.button !== 0 || presMode) return;
+    if (e.button !== 0) return;
     const p = pos(e); mouse = p; cv.focus();
+
+    // Clic sobre enlaces durante la presentación
+    if (presMode) {
+      if (hoveredLink) {
+        const cur = order[presIdx];
+        const targetId = hoveredLink.a === cur?.id ? hoveredLink.b : (hoveredLink.b === cur?.id ? hoveredLink.a : hoveredLink.b);
+        const targetIdx = order.findIndex(n => n.id === targetId);
+        if (targetIdx !== -1) goToPres(targetIdx);
+      }
+      return; 
+    }
+
     const n = nodeAt(p.x, p.y);
 
-    // Modo Conexión Manual (Botón L)
     if (connectMode) {
       if (n) {
         if (!connectSource) {
-          connectSource = n;
-          hint.textContent = 'Haz clic en el nodo DESTINO para enlace manual';
+          connectSource = n; hint.textContent = 'Haz clic en el nodo DESTINO para enlace manual';
         } else {
           if (connectSource !== n && !connected(connectSource, n)) {
-            pushHistory();
-            links.push({ a: connectSource.id, b: n.id });
-            toast("Nodos conectados");
+            pushHistory(); links.push({ a: connectSource.id, b: n.id }); toast("Nodos conectados");
           }
-          connectSource = null;
-          connectMode = false;
-          btnConnect.classList.remove('active');
-          btnConnect.textContent = '⚡ Modo Enlace: OFF';
-          hint.innerHTML = HINT_TEXT;
+          connectSource = null; connectMode = false;
+          btnConnect.classList.remove('active'); btnConnect.textContent = '⚡ Modo Enlace: OFF'; hint.innerHTML = HINT_TEXT;
         }
       }
       return;
     }
 
-    // Selección de Nodos
     if (n) {
       if (e.shiftKey) {
         if (selectedNodes.includes(n)) {
           selectedNodes = selectedNodes.filter(x => x !== n);
           selNode = selectedNodes.length > 0 ? selectedNodes[selectedNodes.length - 1] : null;
-        } else {
-          selectedNodes.push(n);
-          selNode = n;
-        }
+        } else { selectedNodes.push(n); selNode = n; }
       } else {
-        if (!selectedNodes.includes(n)) {
-          selectedNodes = [n];
-        }
+        if (!selectedNodes.includes(n)) { selectedNodes = [n]; }
         selNode = n;
       }
       selLink = null;
       drag = { n, dx: p.x - n.x, dy: p.y - n.y, snap: snapshot(), moved: false };
     } else {
-      selectedNodes = [];
-      selNode = null;
+      selectedNodes = []; selNode = null;
       selLink = linkAt(p.x, p.y) || null;
-      if (!selLink) {
-        panning = { x: e.clientX, y: e.clientY };
-        cv.style.cursor = 'grabbing';
-      }
+      if (!selLink) { panning = { x: e.clientX, y: e.clientY }; }
     }
   });
 
   addEventListener('mousemove', e => {
+    const r = cv.getBoundingClientRect();
+    mouseScreen = { x: e.clientX - r.left, y: e.clientY - r.top };
+
     if (panning) {
-      pan.x += e.clientX - panning.x;
-      pan.y += e.clientY - panning.y;
+      pan.x += e.clientX - panning.x; pan.y += e.clientY - panning.y;
       panning = { x: e.clientX, y: e.clientY };
       return;
     }
+    
     mouse = pos(e);
-    if (!drag) return;
+    hoveredLink = linkAt(mouse.x, mouse.y) || null;
 
-    // Arrastrar grupo de nodos o nodo único
+    if (presMode) {
+      cv.style.cursor = hoveredLink ? 'pointer' : 'default';
+      return; // Prevenir lógicas de arrastre si estamos presentando
+    } else {
+      cv.style.cursor = 'crosshair';
+    }
+
+    if (!drag) return;
     const moveX = mouse.x - drag.dx - drag.n.x;
     const moveY = mouse.y - drag.dy - drag.n.y;
-
     if (selectedNodes.length > 1 && selectedNodes.includes(drag.n)) {
       selectedNodes.forEach(sn => { sn.x += moveX; sn.y += moveY; });
     } else {
-      drag.n.x = mouse.x - drag.dx;
-      drag.n.y = mouse.y - drag.dy;
+      drag.n.x = mouse.x - drag.dx; drag.n.y = mouse.y - drag.dy;
     }
     drag.moved = true;
   });
 
   addEventListener('mouseup', () => {
-    if (panning) { panning = null; cv.style.cursor = 'crosshair'; return; }
+    if (panning) { panning = null; return; }
     if (!drag) return;
     if (drag.moved) pushHistory(drag.snap);
     drag = null;
@@ -529,36 +572,20 @@
     const p = pos(e), n = nodeAt(p.x, p.y);
     if (n) { selNode = n; selectedNodes = [n]; startEdit(n); return; }
     if (linkAt(p.x, p.y)) return;
-
-    pushHistory();
-    selNode = newNode(p.x, p.y);
-    selectedNodes = [selNode];
-    selLink = null;
-    startEdit(selNode, undefined, true);
+    pushHistory(); selNode = newNode(p.x, p.y); selectedNodes = [selNode]; selLink = null; startEdit(selNode, undefined, true);
   });
 
-  /* ---------- Botón Conexión Manual ---------- */
   btnConnect.onclick = () => {
-    connectMode = !connectMode;
-    connectSource = null;
-    if (connectMode) {
-      btnConnect.classList.add('active');
-      btnConnect.textContent = '⚡ Modo Enlace: ON';
-      hint.textContent = 'Haz clic en el nodo ORIGEN';
-    } else {
-      btnConnect.classList.remove('active');
-      btnConnect.textContent = '⚡ Modo Enlace: OFF';
-      hint.innerHTML = HINT_TEXT;
-    }
+    connectMode = !connectMode; connectSource = null;
+    if (connectMode) { btnConnect.classList.add('active'); btnConnect.textContent = '⚡ Modo Enlace: ON'; hint.textContent = 'Haz clic en el nodo ORIGEN';
+    } else { btnConnect.classList.remove('active'); btnConnect.textContent = '⚡ Modo Enlace: OFF'; hint.innerHTML = HINT_TEXT; }
     cv.focus();
   };
 
-  /* ---------- Teclado & Atajos ---------- */
   addEventListener('keydown', e => {
     if (editing) return;
     const k = e.key;
 
-    // Navegación en Presentación
     if (presMode) {
       const nextKeys = ['ArrowRight', 'ArrowDown', 'PageDown', ' '], prevKeys = ['ArrowLeft', 'ArrowUp', 'PageUp'];
       if (nextKeys.includes(k)) goToPres(presIdx + 1);
@@ -567,66 +594,33 @@
       e.preventDefault(); return;
     }
 
-    // Deshacer
     if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === 'z') { e.preventDefault(); undo(); return; }
-
-    // Escape -> Cancela o resetea vista
     if (k === 'Escape') {
       if (connectMode) {
-        connectMode = false; connectSource = null;
-        btnConnect.classList.remove('active');
-        btnConnect.textContent = '⚡ Modo Enlace: OFF';
-        hint.innerHTML = HINT_TEXT;
-        return;
+        connectMode = false; connectSource = null; btnConnect.classList.remove('active'); btnConnect.textContent = '⚡ Modo Enlace: OFF'; hint.innerHTML = HINT_TEXT; return;
       }
-      pan = { x: 0, y: 0 }; selectedNodes = []; selNode = null;
-      toast("Cámara centrada");
-      return;
+      pan = { x: 0, y: 0 }; selectedNodes = []; selNode = null; toast("Cámara centrada"); return;
     }
 
-    // Suprimir / Borrar
     if (k === 'Delete' || k === 'Backspace') {
       e.preventDefault();
       if (selectedNodes.length > 0) {
-        pushHistory();
-        const ids = selectedNodes.map(n => n.id);
-        nodes = nodes.filter(n => !ids.includes(n.id));
-        links = links.filter(l => !ids.includes(l.a) && !ids.includes(l.b));
-        toast(`Eliminado(s) ${selectedNodes.length} nodo(s)`);
-        selectedNodes = []; selNode = null;
-      } else if (selLink) {
-        pushHistory();
-        links = links.filter(l => l !== selLink);
-        selLink = null;
-        toast("Enlace eliminado");
-      }
+        pushHistory(); const ids = selectedNodes.map(n => n.id);
+        nodes = nodes.filter(n => !ids.includes(n.id)); links = links.filter(l => !ids.includes(l.a) && !ids.includes(l.b));
+        toast(`Eliminado(s) ${selectedNodes.length} nodo(s)`); selectedNodes = []; selNode = null;
+      } else if (selLink) { pushHistory(); links = links.filter(l => l !== selLink); selLink = null; toast("Enlace eliminado"); }
       return;
     }
 
-    // Tecla 'L' -> Alternar Modo Enlace Manual
-    if (k.toLowerCase() === 'l' && !e.ctrlKey && !e.metaKey) {
-      e.preventDefault();
-      btnConnect.click();
-      return;
-    }
-
-    // Tecla 'C' -> Conectar en Secuencia Nodos Seleccionados
+    if (k.toLowerCase() === 'l' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); btnConnect.click(); return; }
     if (k.toLowerCase() === 'c' && !e.ctrlKey && !e.metaKey && selectedNodes.length >= 2) {
-      e.preventDefault();
-      pushHistory();
-      let added = 0;
+      e.preventDefault(); pushHistory(); let added = 0;
       for (let i = 0; i < selectedNodes.length - 1; i++) {
         const a = selectedNodes[i], b = selectedNodes[i + 1];
-        if (!connected(a, b)) {
-          links.push({ a: a.id, b: b.id });
-          added++;
-        }
+        if (!connected(a, b)) { links.push({ a: a.id, b: b.id }); added++; }
       }
-      toast(`Conectados ${added} enlace(s) sinápticos`);
-      return;
+      toast(`Conectados ${added} enlace(s) sinápticos`); return;
     }
-
-    // Tecla TAB -> Ramificar Nodo Hijo Rápidamente
     if (k === 'Tab' && selNode) {
       e.preventDefault(); pushHistory();
       const count = links.filter(l => l.a === selNode.id || l.b === selNode.id).length;
@@ -635,11 +629,8 @@
         Math.min(innerWidth - 60, Math.max(60, selNode.x + Math.cos(angle) * 140)),
         Math.min(innerHeight - 60, Math.max(80, selNode.y + Math.sin(angle) * 140))
       );
-      links.push({ a: selNode.id, b: child.id });
-      selNode = child; selectedNodes = [child];
-      startEdit(child, undefined, true);
-      toast("Nodo hijo creado");
-      return;
+      links.push({ a: selNode.id, b: child.id }); selNode = child; selectedNodes = [child];
+      startEdit(child, undefined, true); toast("Nodo hijo creado"); return;
     }
 
     if (!selNode) return;
@@ -649,111 +640,74 @@
     }
   });
 
-  /* ---------- Modo Presentación Cinemática ---------- */
   function buildOrder(start) {
     const seen = new Set(), out = [];
     const visit = n => {
       seen.add(n.id); out.push(n);
-      links.filter(l => l.a === n.id || l.b === n.id)
-        .map(l => byId(l.a === n.id ? l.b : l.a)).filter(Boolean).sort((p, q) => p.id - q.id)
+      links.filter(l => l.a === n.id || l.b === n.id).map(l => byId(l.a === n.id ? l.b : l.a)).filter(Boolean).sort((p, q) => p.id - q.id)
         .forEach(m => { if (!seen.has(m.id)) visit(m); });
     };
-    visit(start);
-    nodes.forEach(n => { if (!seen.has(n.id)) visit(n); });
+    visit(start); nodes.forEach(n => { if (!seen.has(n.id)) visit(n); });
     return out;
   }
 
-  // Fracción de la pantalla que ocupa la neurona al presentar (0.6 = 60 %, 0.7 = 70 %)
   const PRES_FRACTION = 0.65;
-
-  // Zoom necesario para que el nodo ocupe PRES_FRACTION del ancho/alto, sin salirse de la pantalla
   function presScale(n) {
     const z = sizeOf(n);
-    const kx = (innerWidth * PRES_FRACTION) / z.w;
-    const ky = (innerHeight * PRES_FRACTION) / z.h;
-    return Math.min(kx, ky);
+    return Math.min((innerWidth * PRES_FRACTION) / z.w, (innerHeight * PRES_FRACTION) / z.h);
   }
 
   function goToPres(i) {
     presIdx = Math.max(0, Math.min(order.length - 1, i));
-    const n = order[presIdx];
-    camT = { x: n.x, y: n.y, k: presScale(n) };
-    hint.textContent = `Presentación: ${presIdx + 1} / ${order.length} · Usar Flechas para navegar · Esc para salir`;
+    const n = order[presIdx]; camT = { x: n.x, y: n.y, k: presScale(n) };
+    hint.textContent = `Presentación: ${presIdx + 1} / ${order.length} · Esc para salir · Pasa el ratón sobre un ENLACE para navegar`;
   }
 
   function startPres() {
     if (!nodes.length) { toast('Crea al menos un nodo para presentar'); return; }
-    endEdit(false); connectMode = false; btnConnect.classList.remove('active');
-    order = buildOrder(selNode || nodes[0]);
-    const n = order[0];
-    cam = { x: n.x, y: n.y, k: 1 };
-    presMode = true;
-    document.getElementById('menu').style.display = 'none';
-    goToPres(0); cv.focus();
+    endEdit(false); connectMode = false; btnConnect.classList.remove('active'); hoveredLink = null;
+    order = buildOrder(selNode || nodes[0]); const n = order[0];
+    cam = { x: n.x, y: n.y, k: 1 }; presMode = true;
+    document.getElementById('menu').style.display = 'none'; goToPres(0); cv.focus();
   }
 
   function exitPres() {
     if (!presMode) return;
-    presMode = false;
-    document.getElementById('menu').style.display = 'flex';
-    hint.innerHTML = HINT_TEXT;
-    cv.focus();
+    presMode = false; hoveredLink = null; cv.style.cursor = 'crosshair';
+    document.getElementById('menu').style.display = 'flex'; hint.innerHTML = HINT_TEXT; cv.focus();
   }
   document.getElementById('btnPres').onclick = startPres;
 
   /* ---------- Exportación & JSON ---------- */
   function exportCanvasHD() {
-    const d = window.devicePixelRatio || 1;
-    const off = document.createElement('canvas');
-    off.width = cv.clientWidth * d; off.height = cv.clientHeight * d;
-    const g = off.getContext('2d');
-    g.scale(d, d);
-    // Renderizado limpio de exportación
+    const d = window.devicePixelRatio || 1; const off = document.createElement('canvas');
+    off.width = cv.clientWidth * d; off.height = cv.clientHeight * d; const g = off.getContext('2d'); g.scale(d, d);
     g.fillStyle = '#030611'; g.fillRect(0, 0, cv.clientWidth, cv.clientHeight);
     links.forEach(l => {
       const a = byId(l.a), b = byId(l.b); if (!a || !b) return;
-      g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y);
-      g.strokeStyle = 'rgba(0, 243, 255, 0.4)'; g.lineWidth = 2; g.stroke();
+      g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.strokeStyle = 'rgba(0, 243, 255, 0.4)'; g.lineWidth = 2; g.stroke();
     });
     nodes.forEach(n => {
-      g.beginPath(); g.arc(n.x, n.y, R, 0, Math.PI * 2);
-      g.fillStyle = '#0a0f24'; g.fill();
-      g.strokeStyle = n.color; g.lineWidth = 2; g.stroke();
-      g.fillStyle = '#fff'; g.font = '600 13px system-ui, sans-serif';
-      g.textAlign = 'center'; g.textBaseline = 'middle';
-      g.fillText(n.text || '', n.x, n.y);
+      g.beginPath(); g.arc(n.x, n.y, R, 0, Math.PI * 2); g.fillStyle = '#0a0f24'; g.fill();
+      g.strokeStyle = n.color; g.lineWidth = 2; g.stroke(); g.fillStyle = '#fff'; g.font = '600 13px system-ui, sans-serif';
+      g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(n.text || '', n.x, n.y);
     });
     return off;
   }
 
-  function download(url, name) {
-    const a = document.createElement('a'); a.href = url; a.download = name;
-    document.body.appendChild(a); a.click(); a.remove();
-  }
-
-  document.getElementById('btnPng').onclick = () => {
-    download(exportCanvasHD().toDataURL('image/png'), 'mapa-neuronal.png');
-    toast("Imagen PNG descargada");
-  };
-
+  function download(url, name) { const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
+  document.getElementById('btnPng').onclick = () => { download(exportCanvasHD().toDataURL('image/png'), 'mapa-neuronal.png'); toast("Imagen PNG descargada"); };
   document.getElementById('btnPdf').onclick = () => {
     if (!window.jspdf) { toast('Error cargando librería jsPDF'); return; }
-    const off = exportCanvasHD(), w = off.width, h = off.height;
-    const pdf = new window.jspdf.jsPDF({ orientation: w >= h ? 'landscape' : 'portrait', unit: 'px', format: [w, h] });
-    pdf.addImage(off.toDataURL('image/png'), 'PNG', 0, 0, w, h);
-    pdf.save('mapa-neuronal.pdf');
-    toast("Documento PDF guardado");
+    const off = exportCanvasHD(), w = off.width, h = off.height, pdf = new window.jspdf.jsPDF({ orientation: w >= h ? 'landscape' : 'portrait', unit: 'px', format: [w, h] });
+    pdf.addImage(off.toDataURL('image/png'), 'PNG', 0, 0, w, h); pdf.save('mapa-neuronal.pdf'); toast("Documento PDF guardado");
   };
 
   document.getElementById('btnUndo').onclick = undo;
-
-  // Guardar / Abrir JSON
   document.getElementById('btnSave').onclick = () => {
     const data = { app: 'neural-map-cyber', version: 2, style, nextId, colorIdx, nodes, links };
     const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
-    download(url, 'mapa-neuronal.json');
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    toast("Archivo JSON guardado");
+    download(url, 'mapa-neuronal.json'); setTimeout(() => URL.revokeObjectURL(url), 1000); toast("Archivo JSON guardado");
   };
 
   const fileIn = document.getElementById('fileIn');
@@ -763,29 +717,18 @@
     const r = new FileReader();
     r.onload = () => {
       try {
-        const d = JSON.parse(r.result);
-        if (!Array.isArray(d.nodes) || !Array.isArray(d.links)) throw new Error();
-        pushHistory();
-        nodes = d.nodes; links = d.links; nextId = d.nextId || nodes.length + 1;
-        colorIdx = d.colorIdx || 0; style = d.style || 0;
-        selectedNodes = []; selNode = null;
-        btnStyle.textContent = '🎨 Estilo: ' + STYLES[style];
-        toast("Mapa cargado con éxito");
+        const d = JSON.parse(r.result); if (!Array.isArray(d.nodes) || !Array.isArray(d.links)) throw new Error();
+        pushHistory(); nodes = d.nodes; links = d.links; nextId = d.nextId || nodes.length + 1;
+        colorIdx = d.colorIdx || 0; style = d.style || 0; selectedNodes = []; selNode = hoveredLink = null;
+        btnStyle.textContent = '🎨 Estilo: ' + STYLES[style]; toast("Mapa cargado con éxito");
       } catch (_) { toast('Archivo JSON no válido'); }
     };
     r.readAsText(f);
   };
 
-  btnStyle.onclick = () => {
-    style = (style + 1) % STYLES.length;
-    btnStyle.textContent = '🎨 Estilo: ' + STYLES[style];
-    toast(`Estilo cambiado a ${STYLES[style]}`);
-  };
+  btnStyle.onclick = () => { style = (style + 1) % STYLES.length; btnStyle.textContent = '🎨 Estilo: ' + STYLES[style]; toast(`Estilo cambiado a ${STYLES[style]}`); };
 
-  // Inicialización Inicial
-  resize();
-  requestAnimationFrame(loop);
-  cv.focus();
+  resize(); requestAnimationFrame(loop); cv.focus();
 })();
 </script>
 </body>
