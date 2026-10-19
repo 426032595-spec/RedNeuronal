@@ -78,13 +78,19 @@
     box-shadow: 0 4px 20px rgba(0, 243, 255, 0.25); animation: toastIn 0.3s ease forwards; opacity: 0; transform: translateY(10px);
   }
 
+  .toast-warning {
+    border-color: #ff007f !important;
+    box-shadow: 0 4px 20px rgba(255, 0, 127, 0.4) !important;
+    color: #ff99cc !important;
+  }
+
   @keyframes toastIn { to { opacity: 1; transform: translateY(0); } }
 
   #hint {
     position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); width: max-content; max-width: 92vw;
     color: rgba(255, 255, 255, 0.6); font-size: 12px; font-weight: 500; text-align: center; pointer-events: none;
     background: rgba(5, 10, 25, 0.6); padding: 6px 16px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.08);
-    backdrop-filter: blur(8px); letter-spacing: 0.3px;
+    backdrop-filter: blur(8px); letter-spacing: 0.3px; z-index: 10;
   }
 
   kbd {
@@ -134,7 +140,7 @@
   let pan = { x: 0, y: 0 }, panning = null;
   let presMode = false, order = [], presIdx = 0, cam = { x: 0, y: 0, k: 1 }, camT = { x: 0, y: 0, k: 1 };
   
-  // Variables para la navegación por letras
+  // Variables para la navegación por letras (Restringida a vecinos)
   let presCycleKey = null, presCycleIndex = 0;
 
   // Interactividad en presentación
@@ -145,9 +151,9 @@
   let impulses = [];
 
   /* ---------- Toast UI ---------- */
-  function toast(msg) {
+  function toast(msg, type = 'normal') {
     const el = document.createElement('div');
-    el.className = 'toast';
+    el.className = 'toast' + (type === 'warning' ? ' toast-warning' : '');
     el.textContent = msg;
     toastContainer.appendChild(el);
     setTimeout(() => {
@@ -223,6 +229,16 @@
   };
 
   const connected = (a, b) => links.some(l => (l.a === a.id && l.b === b.id) || (l.a === b.id && l.b === a.id));
+  
+  // Devuelve los nodos directamente conectados al nodo especificado
+  const getNeighbors = (node) => {
+    if (!node) return [];
+    return links
+      .filter(l => l.a === node.id || l.b === node.id)
+      .map(l => byId(l.a === node.id ? l.b : l.a))
+      .filter(Boolean);
+  };
+
   const newNode = (x, y, initialText = '') => {
     const n = { 
       id: nextId++, x, y, 
@@ -260,7 +276,7 @@
 
   function rr(g, x, y, w, h, r) {
     g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
-    g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+    g.arcTo(x, y + h, x, y, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
   }
 
   function render(time) {
@@ -290,6 +306,8 @@
 
     ctx.save();
     const cur = presMode ? order[presIdx] : null;
+    const currentNeighbors = presMode ? getNeighbors(cur) : [];
+
     if (cur) {
       ctx.translate(w / 2, h / 2); ctx.scale(cam.k, cam.k); ctx.translate(-cam.x, -cam.y);
     } else {
@@ -299,12 +317,22 @@
     // Conexiones
     for (const l of links) {
       const a = byId(l.a), b = byId(l.b); if (!a || !b) continue;
+      const isConnectedToCur = presMode && cur && (l.a === cur.id || l.b === cur.id);
       const sel = l === selLink || (presMode && l === hoveredLink);
       
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
-      ctx.strokeStyle = sel ? '#ff007f' : 'rgba(0, 243, 255, 0.25)';
-      ctx.lineWidth = sel ? (presMode ? 3 / cam.k : 3) : (presMode ? 1.5 / cam.k : 1.5);
-      if (sel) { ctx.shadowColor = '#ff007f'; ctx.shadowBlur = presMode ? 12 / cam.k : 12; }
+      if (sel) {
+        ctx.strokeStyle = '#ff007f';
+        ctx.lineWidth = presMode ? 3.5 / cam.k : 3;
+        ctx.shadowColor = '#ff007f'; ctx.shadowBlur = presMode ? 14 / cam.k : 12;
+      } else if (isConnectedToCur) {
+        ctx.strokeStyle = '#00f3ff';
+        ctx.lineWidth = 2.5 / cam.k;
+        ctx.shadowColor = '#00f3ff'; ctx.shadowBlur = 8 / cam.k;
+      } else {
+        ctx.strokeStyle = 'rgba(0, 243, 255, 0.25)';
+        ctx.lineWidth = presMode ? 1.5 / cam.k : 1.5;
+      }
       ctx.stroke(); ctx.shadowBlur = 0;
     }
 
@@ -328,16 +356,19 @@
 
     // Nodos
     ctx.font = '600 13px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    const isNb = (n, m) => links.some(l => (l.a === n.id && l.b === m.id) || (l.b === n.id && l.a === m.id));
+    
     const opacityOf = n => {
       if (!cur) return 1;
       if (presMode && hoveredLink && (n.id === hoveredLink.a || n.id === hoveredLink.b)) return 1;
-      return n === cur ? 1 : isNb(cur, n) ? 0.7 : 0.15;
+      if (n === cur) return 1;
+      if (currentNeighbors.includes(n)) return 0.85; // Resaltar vecinos conectados
+      return 0.12; // Atenuar otros nodos no conectados
     };
 
     for (const n of nodes) {
       const isSelected = selectedNodes.includes(n);
       const isSource = connectSource === n;
+      const isNeighbor = presMode && currentNeighbors.includes(n);
       const z = sizeOf(n);
       const breathe = Math.sin(time * 0.003 + n.phase) * 3;
       ctx.globalAlpha = opacityOf(n);
@@ -353,19 +384,21 @@
       } else if (style === 3) { ctx.fillStyle = n.color + 'dd';
       } else { ctx.fillStyle = '#070d1f'; }
 
-      ctx.shadowColor = n.color; ctx.shadowBlur = (isSelected || isSource) ? 24 + breathe : 12 + breathe;
+      ctx.shadowColor = isNeighbor ? '#00f3ff' : n.color; 
+      ctx.shadowBlur = (isSelected || isSource || isNeighbor) ? 24 + breathe : 12 + breathe;
       ctx.fill(); ctx.shadowBlur = 0;
 
-      ctx.lineWidth = isSelected ? 2.5 : 1.5;
-      ctx.strokeStyle = isSelected ? '#ffffff' : n.color;
+      ctx.lineWidth = (isSelected || isNeighbor) ? 2.5 : 1.5;
+      ctx.strokeStyle = isSelected ? '#ffffff' : (isNeighbor ? '#00f3ff' : n.color);
       ctx.stroke();
 
-      if (isSelected) {
+      if (isSelected || isNeighbor) {
         ctx.save(); ctx.beginPath();
         if (style === 2) rr(ctx, n.x - z.w / 2 - 5, n.y - z.h / 2 - 5, z.w + 10, z.h + 10, z.h / 2 + 3);
         else ctx.arc(n.x, n.y, R + 6, 0, Math.PI * 2);
         ctx.setLineDash([6, 6]); ctx.lineDashOffset = -time * 0.02;
-        ctx.strokeStyle = '#00f3ff'; ctx.lineWidth = 1.8; ctx.stroke();
+        ctx.strokeStyle = isNeighbor ? '#00f3ff' : '#ffffff'; 
+        ctx.lineWidth = 1.8; ctx.stroke();
         ctx.restore();
       }
 
@@ -378,13 +411,18 @@
         ctx.fillStyle = '#ffffff'; ctx.fillText(ln, n.x, y0 + i * lh);
       });
       
-      // Dibujar la letra tenue asignada a la neurona
+      // Dibujar la letra asignada a la neurona
       const keyText = n.key || (n.text ? n.text.trim().charAt(0).toUpperCase() : '');
       if (keyText) {
-        ctx.font = '700 12px system-ui, sans-serif';
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
-        const keyY = style === 2 ? n.y - z.h / 2 - 12 : n.y - R - 12;
+        ctx.save();
+        ctx.font = isNeighbor ? 'bold 14px system-ui, sans-serif' : '700 12px system-ui, sans-serif';
+        ctx.fillStyle = isNeighbor ? '#00f3ff' : 'rgba(255, 255, 255, 0.45)';
+        if (isNeighbor) {
+          ctx.shadowColor = '#00f3ff'; ctx.shadowBlur = 10;
+        }
+        const keyY = style === 2 ? n.y - z.h / 2 - 14 : n.y - R - 14;
         ctx.fillText(`[ ${keyText} ]`, n.x, keyY);
+        ctx.restore();
       }
 
       ctx.globalAlpha = 1;
@@ -584,21 +622,32 @@
       else if (k === 'Escape') exitPres();
       else if (/^[a-zA-Z0-9]$/.test(k)) {
         const char = k.toUpperCase();
-        const matchingIndices = [];
-        order.forEach((node, idx) => {
+        const cur = order[presIdx];
+        const neighbors = getNeighbors(cur);
+
+        // Filtrar únicamente los vecinos conectados que tengan la letra especificada
+        const matchingNeighbors = neighbors.filter(node => {
           const nodeKey = node.key || (node.text ? node.text.trim().charAt(0).toUpperCase() : '');
-          if (nodeKey === char) matchingIndices.push(idx);
+          return nodeKey === char;
         });
 
-        if (matchingIndices.length > 0) {
+        if (matchingNeighbors.length > 0) {
           if (presCycleKey === char) {
-            presCycleIndex = (presCycleIndex + 1) % matchingIndices.length;
+            presCycleIndex = (presCycleIndex + 1) % matchingNeighbors.length;
           } else {
             presCycleKey = char;
             presCycleIndex = 0;
           }
-          goToPres(matchingIndices[presCycleIndex]);
-          toast(`Saltando a neurona [${char}]`);
+          
+          const targetNode = matchingNeighbors[presCycleIndex];
+          const targetIdx = order.findIndex(n => n.id === targetNode.id);
+          if (targetIdx !== -1) {
+            goToPres(targetIdx);
+            toast(`Transición a neurona [${char}]`);
+          }
+        } else {
+          // Bloqueo: La letra no está conectada al nodo actual
+          toast(`Acceso bloqueado: No hay nodo conectado con la letra [${char}]`, 'warning');
         }
       }
       e.preventDefault(); return;
@@ -669,7 +718,13 @@
   function goToPres(i) {
     presIdx = Math.max(0, Math.min(order.length - 1, i));
     const n = order[presIdx]; camT = { x: n.x, y: n.y, k: presScale(n) };
-    hint.textContent = `Presentación: ${presIdx + 1} / ${order.length} · Esc para salir · Flechas o LETRAS para navegar`;
+    
+    // Obtener y listar letras válidas adyacentes
+    const neighbors = getNeighbors(n);
+    const validKeys = [...new Set(neighbors.map(nb => nb.key || (nb.text ? nb.text.trim().charAt(0).toUpperCase() : '')).filter(Boolean))];
+    const keyHintStr = validKeys.length > 0 ? ` · Teclas conectadas: [${validKeys.join(', ')}]` : ' · (Sin nodos adyacentes)';
+    
+    hint.textContent = `Presentación: ${presIdx + 1} / ${order.length} · Esc para salir · Flechas o LETRAS CONECTADAS para navegar${keyHintStr}`;
   }
 
   function startPres() {
