@@ -150,6 +150,19 @@
   let bgParticles = [];
   let impulses = [];
 
+  // Difuminado del fondo en modo presentación (0 = nítido, 1 = difuminado)
+  let presBlur = 0;
+  // Sprite pre-renderizado de partícula suave (evita ctx.filter, que es muy costoso por frame)
+  const glow = document.createElement('canvas');
+  glow.width = glow.height = 32;
+  (() => {
+    const g = glow.getContext('2d');
+    const gr = g.createRadialGradient(16, 16, 0, 16, 16, 16);
+    gr.addColorStop(0, 'rgba(0,243,255,0.9)'); gr.addColorStop(1, 'rgba(0,243,255,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 32, 32);
+  })();
+  let vigCache = { w: 0, h: 0, g: null };
+
   /* ---------- Toast UI ---------- */
   function toast(msg, type = 'normal') {
     const el = document.createElement('div');
@@ -284,15 +297,17 @@
 
     // Fondo Cyberpunk (Optimizado)
     ctx.fillStyle = '#030611'; ctx.fillRect(0, 0, w, h);
-    ctx.strokeStyle = 'rgba(0, 243, 255, 0.03)';
-    ctx.lineWidth = 1;
-    const gridSpacing = 40;
-    const offX = (pan.x % gridSpacing) | 0, offY = (pan.y % gridSpacing) | 0;
-    
-    ctx.beginPath();
-    for (let x = offX; x < w; x += gridSpacing) { ctx.moveTo(x, 0); ctx.lineTo(x, h); }
-    for (let y = offY; y < h; y += gridSpacing) { ctx.moveTo(0, y); ctx.lineTo(w, y); }
-    ctx.stroke();
+    const soft = presBlur > 0.5; // fondo "difuminado": sin cuadrícula, partículas suaves
+    if (!soft) {
+      ctx.strokeStyle = 'rgba(0, 243, 255, 0.03)';
+      ctx.lineWidth = 1;
+      const gridSpacing = 40;
+      const offX = (pan.x % gridSpacing) | 0, offY = (pan.y % gridSpacing) | 0;
+      ctx.beginPath();
+      for (let x = offX; x < w; x += gridSpacing) { ctx.moveTo(x, 0); ctx.lineTo(x, h); }
+      for (let y = offY; y < h; y += gridSpacing) { ctx.moveTo(0, y); ctx.lineTo(w, y); }
+      ctx.stroke();
+    }
 
     // Partículas (Renderizado sin sombras)
     ctx.fillStyle = '#00f3ff';
@@ -301,9 +316,20 @@
       if (p.x < 0) p.x = w; if (p.x > w) p.x = 0;
       if (p.y < 0) p.y = h; if (p.y > h) p.y = 0;
       ctx.globalAlpha = p.alpha * (0.6 + 0.4 * Math.sin(time * 0.002 + p.x));
-      ctx.beginPath(); ctx.arc(p.x | 0, p.y | 0, p.r, 0, Math.PI * 2); ctx.fill();
+      if (soft) { const s = p.r * 7; ctx.drawImage(glow, p.x - s / 2, p.y - s / 2, s, s); }
+      else { ctx.beginPath(); ctx.arc(p.x | 0, p.y | 0, p.r, 0, Math.PI * 2); ctx.fill(); }
     });
     ctx.globalAlpha = 1;
+
+    // Viñeta suave (gradiente en caché, solo cambia la opacidad)
+    if (presBlur > 0.01) {
+      if (vigCache.w !== w || vigCache.h !== h) {
+        const vg = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.25, w / 2, h / 2, Math.max(w, h) * 0.75);
+        vg.addColorStop(0, 'rgba(3, 6, 17, 0)'); vg.addColorStop(1, 'rgba(3, 6, 17, 0.55)');
+        vigCache = { w, h, g: vg };
+      }
+      ctx.globalAlpha = presBlur; ctx.fillStyle = vigCache.g; ctx.fillRect(0, 0, w, h); ctx.globalAlpha = 1;
+    }
 
     ctx.save();
     const cur = presMode ? order[presIdx] : null;
@@ -370,7 +396,8 @@
       const isNeighbor = presMode && currentNeighbors.includes(n);
       const z = sizeOf(n);
       const nx = n.x | 0, ny = n.y | 0; // Optimización sub-pixel
-      ctx.globalAlpha = opacityOf(n);
+      const nodeAlpha = opacityOf(n);
+      ctx.globalAlpha = nodeAlpha;
 
       ctx.beginPath();
       if (style === 2) rr(ctx, nx - (z.w / 2 | 0), ny - (z.h / 2 | 0), z.w, z.h, z.h / 2);
@@ -406,7 +433,9 @@
         ctx.fillText(ln, nx, y0 + i * lh);
       });
       
-      const keyText = n.key || (n.text ? n.text.trim().charAt(0).toUpperCase() : '');
+      // La letra [ X ] solo se muestra fuera de la presentación (edición);
+      // en presentación las letras disponibles se listan en el texto guía.
+      const keyText = presMode ? '' : (n.key || (n.text ? n.text.trim().charAt(0).toUpperCase() : ''));
       if (keyText) {
         ctx.font = isNeighbor ? 'bold 14px system-ui, sans-serif' : '700 12px system-ui, sans-serif';
         ctx.fillStyle = isNeighbor ? '#00f3ff' : 'rgba(255, 255, 255, 0.45)';
@@ -438,6 +467,7 @@
   }
 
   function loop(time) {
+    presBlur += ((presMode ? 1 : 0) - presBlur) * 0.08;
     if (presMode) {
       cam.x += (camT.x - cam.x) * 0.12;
       cam.y += (camT.y - cam.y) * 0.12;
